@@ -3,17 +3,12 @@ import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import { config } from 'dotenv';
 import { logger } from './utils/logger.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
 // Load environment variables
 config();
-
-// ES Module __dirname equivalent
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 // Import routes
 import healthRoutes from './api/health.js';
@@ -73,7 +68,10 @@ app.use('/api/v1/path-mappings', pathMappingsRoutes);
 
 // Serve static files in production
 if (process.env.NODE_ENV === 'production') {
-  const clientPath = path.join(__dirname, '..', 'client');
+  // In production, the compiled server is at dist/server/server/index.js
+  // and the client is at dist/client/
+  // Using process.cwd() which will be /app in the container
+  const clientPath = path.join(process.cwd(), 'dist', 'client');
   
   // Serve static assets
   app.use(express.static(clientPath));
