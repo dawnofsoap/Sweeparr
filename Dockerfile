@@ -42,8 +42,10 @@ LABEL org.opencontainers.image.title="Sweeparr" \
       org.opencontainers.image.created="${BUILD_DATE}" \
       org.opencontainers.image.licenses="GPL-3.0"
 
+# Environment defaults
 ENV NODE_ENV=production
 ENV PORT=8080
+ENV DATABASE_URL=file:/config/sweeparr.db
 
 # Create non-root user
 RUN addgroup --system --gid 1001 nodejs
