@@ -3,6 +3,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import path from 'path';
+import fs from 'fs';
 import { config } from 'dotenv';
 import { logger } from './utils/logger.js';
 import { errorHandler } from './middleware/errorHandler.js';
@@ -41,10 +42,11 @@ app.use(helmet({
       connectSrc: ["'self'"], // API calls to same origin
       fontSrc: ["'self'"],
       objectSrc: ["'none'"],
-      upgradeInsecureRequests: [],
+      // Don't force HTTPS upgrade - allow HTTP for local/internal deployments
     },
   },
   crossOriginEmbedderPolicy: false, // Allow loading external images
+  crossOriginOpenerPolicy: false, // Disable COOP to prevent issues with popups/redirects
 }));
 app.use(cors());
 app.use(express.json());
@@ -70,15 +72,38 @@ app.use('/api/v1/path-mappings', pathMappingsRoutes);
 if (process.env.NODE_ENV === 'production') {
   // In production, the compiled server is at dist/server/server/index.js
   // and the client is at dist/client/
-  // Using process.cwd() which will be /app in the container
   const clientPath = path.join(process.cwd(), 'dist', 'client');
+  
+  // Debug: Log the client path and check if it exists
+  logger.info(`Static files path: ${clientPath}`, 'System');
+  
+  if (fs.existsSync(clientPath)) {
+    const files = fs.readdirSync(clientPath);
+    logger.info(`Client directory contents: ${files.join(', ')}`, 'System');
+    
+    const assetsPath = path.join(clientPath, 'assets');
+    if (fs.existsSync(assetsPath)) {
+      const assetFiles = fs.readdirSync(assetsPath);
+      logger.info(`Assets directory contents: ${assetFiles.join(', ')}`, 'System');
+    } else {
+      logger.warn(`Assets directory not found at: ${assetsPath}`, 'System');
+    }
+  } else {
+    logger.error(`Client directory not found at: ${clientPath}`, 'System');
+  }
   
   // Serve static assets
   app.use(express.static(clientPath));
   
   // SPA fallback - serve index.html for all non-API routes
   app.get('*', (req, res) => {
-    res.sendFile(path.join(clientPath, 'index.html'));
+    const indexPath = path.join(clientPath, 'index.html');
+    if (fs.existsSync(indexPath)) {
+      res.sendFile(indexPath);
+    } else {
+      logger.error(`index.html not found at: ${indexPath}`, 'System');
+      res.status(500).send('Frontend not found. Check build configuration.');
+    }
   });
 }
 
@@ -89,6 +114,7 @@ app.use(errorHandler);
 app.listen(PORT, () => {
   logger.info(`Sweeparr server started on port ${PORT}`, 'System');
   logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`, 'System');
+  logger.info(`Working directory: ${process.cwd()}`, 'System');
   
   // Start Leaving Soon auto-sync after a short delay to let DB initialize
   setTimeout(() => {
