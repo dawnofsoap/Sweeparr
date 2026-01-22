@@ -11,6 +11,13 @@ import { errorHandler } from './middleware/errorHandler.js';
 // Load environment variables
 config();
 
+// Auto-detect environment based on version if NODE_ENV not explicitly set
+const version = process.env.VERSION || process.env.npm_package_version || '0.0.0';
+const isPreRelease = /alpha|beta|dev|rc/i.test(version);
+if (!process.env.NODE_ENV) {
+  process.env.NODE_ENV = isPreRelease ? 'development' : 'production';
+}
+
 // Import routes
 import healthRoutes from './api/health.js';
 import setupRoutes from './api/setup.js';
@@ -113,7 +120,8 @@ app.use(errorHandler);
 // Start server
 app.listen(PORT, () => {
   logger.info(`Sweeparr server started on port ${PORT}`, 'System');
-  logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`, 'System');
+  logger.info(`Version: ${version}`, 'System');
+  logger.info(`Environment: ${process.env.NODE_ENV || 'development'}${isPreRelease ? ' (auto-detected from version)' : ''}`, 'System');
   logger.info(`Working directory: ${process.cwd()}`, 'System');
   
   // Start Leaving Soon auto-sync after a short delay to let DB initialize
