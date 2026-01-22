@@ -27,6 +27,21 @@ RUN npm run build
 FROM base AS runner
 WORKDIR /app
 
+# Build arguments for image labeling
+ARG BUILD_DATE
+ARG VCS_REF
+ARG VERSION
+
+# OCI Image Labels
+LABEL org.opencontainers.image.title="Sweeparr" \
+      org.opencontainers.image.description="Sweep away old, unwatched, and unwanted media from your library" \
+      org.opencontainers.image.url="https://github.com/dawnofsoap/Sweeparr" \
+      org.opencontainers.image.source="https://github.com/dawnofsoap/Sweeparr" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.licenses="GPL-3.0"
+
 ENV NODE_ENV=production
 ENV PORT=8080
 

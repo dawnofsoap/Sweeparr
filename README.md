@@ -13,6 +13,30 @@
 
 ---
 
+## Screenshots
+
+<p align="center">
+  <img src="docs/screenshots/dashboard.png" alt="Dashboard" width="800">
+  <br><em>Dashboard — Overview of connected services, storage usage, and active rules</em>
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/settings-connections.png" alt="Settings - Connections" width="800">
+  <br><em>Settings — Manage connections to Radarr, Sonarr, Jellyfin, Emby, and statistics services</em>
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/storage.png" alt="Storage Monitoring" width="800">
+  <br><em>Storage — Monitor TrueNAS pools and datasets with threshold alerts</em>
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/rule-builder.png" alt="Rule Builder" width="800">
+  <br><em>Rule Builder — Create cleanup rules with visual condition builder</em>
+</p>
+
+---
+
 ## Overview
 
 Sweeparr is a containerized media library cleanup automation application with a modern web GUI inspired by Radarr and Sonarr. It helps manage and clean up media libraries by identifying and removing unwatched, unwanted, or stale content based on configurable rules.
