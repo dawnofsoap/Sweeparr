@@ -2,12 +2,18 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { config } from 'dotenv';
 import { logger } from './utils/logger.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
 // Load environment variables
 config();
+
+// ES Module __dirname equivalent
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Import routes
 import healthRoutes from './api/health.js';
@@ -29,8 +35,22 @@ import { leavingSoonService } from './services/leavingSoonService.js';
 const app = express();
 const PORT = process.env.PORT || 8080;
 
-// Middleware
-app.use(helmet());
+// Middleware - Configure Helmet with CSP for React SPA
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"], // React/Tailwind may use inline styles
+      imgSrc: ["'self'", "data:", "https:"], // Allow data URIs and external images (posters)
+      connectSrc: ["'self'"], // API calls to same origin
+      fontSrc: ["'self'"],
+      objectSrc: ["'none'"],
+      upgradeInsecureRequests: [],
+    },
+  },
+  crossOriginEmbedderPolicy: false, // Allow loading external images
+}));
 app.use(cors());
 app.use(express.json());
 app.use(morgan('combined', { stream: { write: (message) => logger.http(message.trim()) } }));
@@ -53,9 +73,14 @@ app.use('/api/v1/path-mappings', pathMappingsRoutes);
 
 // Serve static files in production
 if (process.env.NODE_ENV === 'production') {
-  app.use(express.static('dist/client'));
+  const clientPath = path.join(__dirname, '..', 'client');
+  
+  // Serve static assets
+  app.use(express.static(clientPath));
+  
+  // SPA fallback - serve index.html for all non-API routes
   app.get('*', (req, res) => {
-    res.sendFile('index.html', { root: 'dist/client' });
+    res.sendFile(path.join(clientPath, 'index.html'));
   });
 }
 
