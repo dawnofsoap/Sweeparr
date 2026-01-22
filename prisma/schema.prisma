@@ -1,0 +1,257 @@
+// Prisma schema for Sweeparr
+// https://pris.ly/d/prisma-schema
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// Settings & Configuration
+// ============================================
+
+model Settings {
+  key       String   @id
+  value     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ============================================
+// Notification Services
+// ============================================
+
+model NotificationService {
+  id        Int      @id @default(autoincrement())
+  name      String
+  type      String   // discord, slack, email, telegram, gotify, pushover
+  config    String   // JSON string of service-specific config
+  isEnabled Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ============================================
+// Connected Services
+// ============================================
+
+model ArrApp {
+  id           Int           @id @default(autoincrement())
+  name         String
+  type         String        // radarr, sonarr
+  url          String        @unique // Prevent duplicate services
+  apiKey       String
+  isEnabled    Boolean       @default(true)
+  isDefault    Boolean       @default(false)
+  
+  // Path mappings: JSON array of { arrPath, localPath } objects
+  // arrPath = path as seen by Radarr/Sonarr (e.g., "/movies")
+  // localPath = path as mounted in Sweeparr container (e.g., "/data/media/movies")
+  // Example: [{"arrPath":"/movies","localPath":"/data/media/movies"}]
+  pathMappings String        @default("[]")
+  
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  rules        Rule[]
+}
+
+model MediaServer {
+  id                  Int           @id @default(autoincrement())
+  name                String
+  type                String        // jellyfin, emby, plex
+  url                 String        @unique // Prevent duplicate servers
+  apiKey              String
+  isEnabled           Boolean       @default(true)
+  isDefault           Boolean       @default(false)
+  
+  // Path mappings: JSON array of { localPath, mediaServerPath } objects
+  // localPath = path as mounted in Sweeparr container (e.g., "/data/media/movies")
+  // mediaServerPath = path as seen by media server (e.g., "/media/movies")
+  // Example: [{"localPath":"/data/media/movies","mediaServerPath":"/media/movies"}]
+  pathMappings        String        @default("[]")
+  
+  // Leaving Soon library paths (as seen by the media server)
+  // These are the paths where symlinks will be created
+  // Example: "/data/leaving-soon/Movies" maps to "/leaving-soon/Movies" in media server
+  leavingSoonMoviesPath    String?   // Local path for movies symlinks
+  leavingSoonTvPath        String?   // Local path for TV symlinks
+  leavingSoonMoviesMediaPath String? // Media server path for movies library
+  leavingSoonTvMediaPath     String? // Media server path for TV library
+  
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+  libraries           Library[]
+  rules               Rule[]
+  statisticsService   StatisticsService? @relation(fields: [statisticsServiceId], references: [id])
+  statisticsServiceId Int?
+}
+
+model StatisticsService {
+  id           Int           @id @default(autoincrement())
+  name         String
+  type         String        // jellystat, tautulli
+  url          String        @unique // Prevent duplicate services
+  apiKey       String
+  isEnabled    Boolean       @default(true)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  mediaServers MediaServer[] // Optional link to associated media servers
+}
+
+model Library {
+  id            Int         @id @default(autoincrement())
+  name          String
+  externalId    String      // Library ID from media server
+  type          String      // movies, shows, music
+  isMonitored   Boolean     @default(true)
+  mediaServerId Int
+  mediaServer   MediaServer @relation(fields: [mediaServerId], references: [id], onDelete: Cascade)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@unique([mediaServerId, externalId])
+}
+
+// ============================================
+// Rules & Collections
+// ============================================
+
+model Rule {
+  id               Int          @id @default(autoincrement())
+  name             String
+  description      String?
+  isEnabled        Boolean      @default(true)
+  isActive         Boolean      @default(true)
+  mediaType        String       @default("movie") // movie, series
+  arrAppId         Int
+  arrApp           ArrApp       @relation(fields: [arrAppId], references: [id])
+  mediaServerId    Int?
+  mediaServer      MediaServer? @relation(fields: [mediaServerId], references: [id])
+  conditions       String       // JSON string of rule conditions
+  actions          String       // JSON string of rule actions
+  action           String       @default("delete") // delete, unmonitor, tag
+  schedule         String?      // Cron expression for scheduled execution
+  gracePeriodDays  Int          @default(0)
+  showInCollection Boolean      @default(true)
+  collectionName   String?
+  lastRun          DateTime?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  history          RuleHistory[]
+}
+
+model RuleHistory {
+  id           Int      @id @default(autoincrement())
+  ruleId       Int
+  rule         Rule     @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  itemsMatched Int
+  itemsActioned Int
+  status       String   // success, failed, partial
+  error        String?
+  details      String?  // JSON string of detailed results
+  executedAt   DateTime @default(now())
+}
+
+model Collection {
+  id          Int               @id @default(autoincrement())
+  name        String
+  description String?
+  isExclusion Boolean           @default(false)
+  isActive    Boolean           @default(true)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  items       CollectionItem[]
+}
+
+model CollectionItem {
+  id           Int        @id @default(autoincrement())
+  collectionId Int
+  collection   Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  mediaType    String     // movie, series
+  mediaId      String     // External ID (TMDB, TVDB, etc.)
+  title        String
+  isExcluded   Boolean    @default(false)
+  expiresAt    DateTime?
+  ruleId       Int?
+  addedAt      DateTime   @default(now())
+}
+
+model Exclusion {
+  id        Int      @id @default(autoincrement())
+  mediaType String   // movie, series
+  mediaId   String   // External ID
+  title     String
+  reason    String?
+  expiresAt DateTime?
+  createdAt DateTime @default(now())
+}
+
+// ============================================
+// Storage Sources
+// ============================================
+
+model StorageSource {
+  id              Int       @id @default(autoincrement())
+  name            String
+  type            String    // local, smb, nfs, truenas
+  path            String?   // Local path or mount point
+  host            String?   // Remote host for SMB/NFS/TrueNAS
+  share           String?   // Share name for SMB
+  export          String?   // Export path for NFS
+  dataset         String?   // Dataset path for TrueNAS ZFS
+  pool            String?   // Pool name for TrueNAS ZFS
+  username        String?   // For SMB or TrueNAS API
+  password        String?   // For SMB or TrueNAS API
+  apiKey          String?   // For TrueNAS API
+  port            Int?      // For TrueNAS API (default 443)
+  useSsl          Boolean   @default(true) // For TrueNAS API
+  isEnabled       Boolean   @default(true)
+  thresholdPct    Int       @default(90) // Percentage threshold to trigger alerts
+  autoCleanup     Boolean   @default(false) // Whether to auto-cleanup when threshold hit
+  lastChecked     DateTime?
+  lastSize        BigInt?   // Last known total size in bytes
+  lastUsed        BigInt?   // Last known used space in bytes
+  lastFree        BigInt?   // Last known free space in bytes
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+// ============================================
+// Activity & History
+// ============================================
+
+model CleanupHistory {
+  id            Int      @id @default(autoincrement())
+  ruleId        Int?
+  ruleName      String
+  itemsScanned  Int
+  itemsMatched  Int
+  itemsDeleted  Int
+  sizeFreed     BigInt   @default(0)
+  status        String   // completed, failed, cancelled
+  error         String?
+  startedAt     DateTime
+  completedAt   DateTime?
+  details       String?  // JSON string of detailed results
+}
+
+model DeletedItem {
+  id          Int      @id @default(autoincrement())
+  mediaType   String   // movie, series, episode
+  title       String
+  year        Int?
+  mediaId     String?  // External ID
+  arrAppId    Int?
+  arrAppName  String?
+  size        BigInt   @default(0)
+  reason      String   // Why it was deleted
+  deletedAt   DateTime @default(now())
+  deletedBy   String?  // Rule name or manual
+  canRestore  Boolean  @default(false)
+  restoreData String?  // JSON string for potential restoration
+}

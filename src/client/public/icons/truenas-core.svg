@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <!-- TrueNAS CORE logo - single open box -->
+  <g fill="#0095D5">
+    <!-- Left shark fin / box side -->
+    <path d="M8 16 L24 8 L24 24 L8 32 Z"/>
+    <!-- Right shark fin / box side -->
+    <path d="M24 8 L40 16 L40 32 L24 24 Z"/>
+  </g>
+</svg>

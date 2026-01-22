@@ -1,0 +1,50 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+generated/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Database
+*.db
+*.db-journal
+config/
+
+# Logs
+logs/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+coverage/
+
+# Misc
+*.tgz
+.npm
+
+# Local development scripts
+scripts/
+
+# Local Docker configs
+docker-compose.yml
+
+# Deleted files
+deleted/
+docker-compose.override.yml
+docker-compose.local.yml
+docker-compose.*.local.yml
+.docker/

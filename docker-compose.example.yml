@@ -1,0 +1,178 @@
+# Sweeparr Docker Compose Example
+# 
+# Copy this file to docker-compose.yml and adjust values for your setup.
+# See README.md for detailed configuration documentation.
+
+services:
+  sweeparr:
+    image: ghcr.io/dawnofsoap/sweeparr:development-alpha
+    container_name: sweeparr
+    restart: unless-stopped
+    
+    ports:
+      - "8484:8080"
+    
+    environment:
+      # =============================================
+      # GENERAL SETTINGS
+      # =============================================
+      
+      # Timezone (for scheduled tasks and logs)
+      # Required: No | Default: America/Chicago
+      - TZ=America/Chicago
+      
+      # User/Group IDs for file permissions
+      # Match these to your media stack for consistent permissions
+      # Required: No | Default: 1000
+      - PUID=1000
+      - PGID=1000
+      
+      # =============================================
+      # ADVANCED SETTINGS (rarely need changing)
+      # =============================================
+      
+      # Environment mode
+      # Required: No | Default: production
+      # - NODE_ENV=production
+      
+      # Database location (inside container)
+      # Required: No | Default: file:/config/sweeparr.db
+      # - DATABASE_URL=file:/config/sweeparr.db
+    
+    volumes:
+      # =============================================
+      # REQUIRED VOLUMES
+      # =============================================
+      
+      # Config and database storage
+      # This is where Sweeparr stores its SQLite database and settings
+      - ./config:/config
+      
+      # =============================================
+      # OPTIONAL VOLUMES
+      # =============================================
+      
+      # Log storage
+      # Application logs will be written here
+      - ./logs:/logs
+      
+      # Leaving Soon symlink destination
+      # Required if using the "Leaving Soon" feature
+      # Must be READ-WRITE for symlink creation
+      # This path should also be accessible by your media server
+      - ./leaving-soon:/data/leaving-soon
+      
+      # Media library access (READ-ONLY recommended for safety)
+      # Only needed if Sweeparr needs direct access to media files
+      # Uncomment and adjust paths as needed:
+      # - /mnt/media/movies:/data/media/movies:ro
+      # - /mnt/media/tv:/data/media/tv:ro
+    
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+# =============================================================================
+# TRUENAS SCALE EXAMPLE
+# =============================================================================
+# 
+# services:
+#   sweeparr:
+#     image: ghcr.io/dawnofsoap/sweeparr:development-alpha
+#     container_name: sweeparr
+#     restart: unless-stopped
+#     ports:
+#       - "8484:8080"
+#     environment:
+#       - TZ=America/Chicago
+#       - PUID=568    # TrueNAS apps user
+#       - PGID=568    # TrueNAS apps group
+#     volumes:
+#       - /mnt/tank/apps/sweeparr/config:/config
+#       - /mnt/tank/apps/sweeparr/logs:/logs
+#       - /mnt/tank/media/movies:/data/media/movies:ro
+#       - /mnt/tank/media/tv:/data/media/tv:ro
+#       - /mnt/tank/media/leaving-soon:/data/leaving-soon
+
+# =============================================================================
+# FULL MEDIA STACK EXAMPLE
+# =============================================================================
+# 
+# services:
+#   sweeparr:
+#     image: ghcr.io/dawnofsoap/sweeparr:development-alpha
+#     container_name: sweeparr
+#     restart: unless-stopped
+#     ports:
+#       - "8484:8080"
+#     environment:
+#       - TZ=America/Chicago
+#     volumes:
+#       - sweeparr-config:/config
+#       - sweeparr-logs:/logs
+#       - /mnt/media/leaving-soon:/data/leaving-soon
+#     networks:
+#       - media-network
+#     depends_on:
+#       - jellyfin
+#       - radarr
+#       - sonarr
+# 
+#   jellyfin:
+#     image: jellyfin/jellyfin:latest
+#     container_name: jellyfin
+#     volumes:
+#       - jellyfin-config:/config
+#       - /mnt/media/movies:/media/movies
+#       - /mnt/media/tv:/media/tv
+#       - /mnt/media/leaving-soon:/leaving-soon
+#     ports:
+#       - "8096:8096"
+#     networks:
+#       - media-network
+# 
+#   radarr:
+#     image: linuxserver/radarr:latest
+#     container_name: radarr
+#     environment:
+#       - PUID=1000
+#       - PGID=1000
+#       - TZ=America/Chicago
+#     volumes:
+#       - radarr-config:/config
+#       - /mnt/media/movies:/movies
+#       - /mnt/downloads:/downloads
+#     ports:
+#       - "7878:7878"
+#     networks:
+#       - media-network
+# 
+#   sonarr:
+#     image: linuxserver/sonarr:latest
+#     container_name: sonarr
+#     environment:
+#       - PUID=1000
+#       - PGID=1000
+#       - TZ=America/Chicago
+#     volumes:
+#       - sonarr-config:/config
+#       - /mnt/media/tv:/tv
+#       - /mnt/downloads:/downloads
+#     ports:
+#       - "8989:8989"
+#     networks:
+#       - media-network
+# 
+# volumes:
+#   sweeparr-config:
+#   sweeparr-logs:
+#   jellyfin-config:
+#   radarr-config:
+#   sonarr-config:
+# 
+# networks:
+#   media-network:
+#     driver: bridge

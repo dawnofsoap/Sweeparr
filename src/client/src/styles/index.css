@@ -1,0 +1,489 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* CSS Custom Properties for theming */
+:root {
+  /* Accent color - orange (broom bristles) */
+  --color-primary: 249, 115, 22;      /* orange-500 */
+  --color-primary-hover: 234, 88, 12; /* orange-600 */
+  --color-primary-ring: 249, 115, 22;
+  
+  /* Dark theme colors (default) - Warm Charcoal */
+  --bg-primary: 30, 26, 24;          /* warm charcoal */
+  --bg-secondary: 45, 40, 36;        /* warm dark brown */
+  --bg-tertiary: 65, 58, 52;         /* warm medium brown */
+  --bg-elevated: 52, 46, 42;         /* between secondary and tertiary */
+  --text-primary: 245, 242, 240;     /* warm white */
+  --text-secondary: 168, 162, 158;   /* warm gray */
+  --text-muted: 120, 113, 108;       /* warm muted */
+  --border-color: 65, 58, 52;        /* warm border */
+  --border-light: 85, 76, 68;        /* warm border light */
+  --input-bg: 65, 58, 52;            /* warm input */
+  --input-border: 85, 76, 68;        /* warm input border */
+}
+
+/* Light theme overrides */
+.light-theme {
+  --bg-primary: 249, 250, 251;     /* gray-50 */
+  --bg-secondary: 255, 255, 255;   /* white */
+  --bg-tertiary: 243, 244, 246;    /* gray-100 */
+  --bg-elevated: 255, 255, 255;    /* white */
+  --text-primary: 17, 24, 39;      /* gray-900 */
+  --text-secondary: 75, 85, 99;    /* gray-600 */
+  --text-muted: 107, 114, 128;     /* gray-500 */
+  --border-color: 229, 231, 235;   /* gray-200 */
+  --border-light: 209, 213, 219;   /* gray-300 */
+  --input-bg: 255, 255, 255;       /* white */
+  --input-border: 209, 213, 219;   /* gray-300 */
+}
+
+/* Disable animations when preference is set */
+.no-animations,
+.no-animations * {
+  transition-duration: 0.01ms !important;
+  animation-duration: 0.01ms !important;
+}
+
+@layer base {
+  body {
+    background-color: rgb(var(--bg-primary));
+    color: rgb(var(--text-primary));
+    @apply antialiased;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply px-4 py-2 rounded font-medium transition-colors duration-200;
+  }
+  
+  .btn-primary {
+    background-color: rgb(var(--color-primary));
+    @apply text-white;
+  }
+  
+  .btn-primary:hover:not(:disabled) {
+    background-color: rgb(var(--color-primary-hover));
+  }
+  
+  .btn-primary:disabled {
+    @apply opacity-50 cursor-not-allowed;
+  }
+  
+  .btn-secondary {
+    background-color: rgb(var(--bg-tertiary));
+    color: rgb(var(--text-primary));
+  }
+  
+  .btn-secondary:hover:not(:disabled) {
+    background-color: rgb(var(--border-light));
+  }
+  
+  .btn-danger {
+    @apply bg-red-600 text-white;
+  }
+  
+  .btn-danger:hover:not(:disabled) {
+    @apply bg-red-700;
+  }
+  
+  .card {
+    background-color: rgb(var(--bg-secondary));
+    border: 1px solid rgb(var(--border-color));
+    @apply rounded-lg shadow-lg;
+  }
+  
+  .input {
+    background-color: rgb(var(--input-bg));
+    border: 1px solid rgb(var(--input-border));
+    color: rgb(var(--text-primary));
+    @apply rounded px-3 py-2 focus:outline-none focus:ring-2;
+  }
+  
+  .input::placeholder {
+    color: rgb(var(--text-muted));
+  }
+  
+  .input:focus {
+    border-color: rgb(var(--color-primary));
+    --tw-ring-color: rgba(var(--color-primary-ring), 0.5);
+  }
+  
+  .sidebar-link {
+    color: rgb(var(--text-secondary));
+    @apply flex items-center gap-3 px-3 py-2 rounded-lg transition-colors duration-200;
+  }
+  
+  .sidebar-link:hover {
+    background-color: rgb(var(--bg-secondary));
+    color: rgb(var(--text-primary));
+  }
+  
+  .sidebar-link.active {
+    background-color: rgb(var(--color-primary));
+    @apply text-white;
+  }
+
+  .sidebar-sublink {
+    color: rgb(var(--text-muted));
+    @apply flex items-center gap-2 px-2 py-1.5 text-sm rounded transition-colors duration-200;
+  }
+  
+  .sidebar-sublink:hover {
+    background-color: rgb(var(--bg-secondary));
+    color: rgb(var(--text-primary));
+  }
+  
+  .sidebar-sublink.active {
+    color: rgb(var(--color-primary));
+    background-color: rgba(var(--color-primary), 0.1);
+  }
+  
+  /* Toggle switch with dynamic accent */
+  .toggle-switch-accent {
+    background-color: rgb(var(--color-primary));
+  }
+
+  /* Sidebar styling */
+  .sidebar-container {
+    background-color: rgb(var(--bg-secondary));
+    border-color: rgb(var(--border-color));
+  }
+
+  .sidebar-border {
+    border-color: rgb(var(--border-color));
+  }
+
+  .sidebar-title {
+    color: rgb(var(--text-primary));
+  }
+
+  .sidebar-version {
+    color: rgb(var(--text-muted));
+  }
+
+  .logo-bg {
+    background-color: rgb(var(--color-primary));
+  }
+
+  /* Main content area */
+  .main-content {
+    background-color: rgb(var(--bg-primary));
+  }
+
+  /* Header styling */
+  .header-container {
+    background-color: rgb(var(--bg-secondary));
+    border-color: rgb(var(--border-color));
+  }
+
+  .header-text {
+    color: rgb(var(--text-secondary));
+  }
+
+  .hover\:text-primary:hover {
+    color: rgb(var(--text-primary));
+  }
+
+  .hover\:bg-secondary:hover {
+    background-color: rgb(var(--bg-tertiary));
+  }
+
+  /* Text utility classes */
+  .text-secondary {
+    color: rgb(var(--text-secondary));
+  }
+
+  .text-muted {
+    color: rgb(var(--text-muted));
+  }
+
+  /* Background utility classes */
+  .bg-tertiary {
+    background-color: rgb(var(--bg-tertiary));
+  }
+
+  /* Border utility classes */
+  .border-color {
+    border-color: rgb(var(--border-color));
+  }
+
+  /* Form label styling */
+  .form-label {
+    color: rgb(var(--text-secondary));
+  }
+
+  /* Dropdown/select styling for modals */
+  .modal-dropdown {
+    background-color: rgb(var(--bg-tertiary));
+    border-color: rgb(var(--border-light));
+  }
+
+  .bg-tertiary {
+    background-color: rgb(var(--bg-tertiary));
+  }
+
+  .hover\:bg-tertiary:hover {
+    background-color: rgb(var(--bg-tertiary));
+  }
+
+  /* List item background (for service status, rules list, etc.) */
+  .list-item-bg {
+    background-color: rgb(var(--bg-tertiary));
+  }
+
+  /* Stat card default value color */
+  .stat-value-default {
+    color: rgb(var(--text-primary));
+  }
+
+  /* Badge for disabled state */
+  .badge-disabled {
+    background-color: rgb(var(--bg-tertiary));
+    color: rgb(var(--text-secondary));
+  }
+
+  /* Log container */
+  .log-container {
+    background-color: rgb(var(--bg-primary));
+    border: 1px solid rgb(var(--border-color));
+  }
+}
+
+/* Override hardcoded gray backgrounds */
+.light-theme .bg-gray-900 {
+  background-color: rgb(var(--bg-primary));
+}
+
+.light-theme .bg-gray-800 {
+  background-color: rgb(var(--bg-secondary));
+}
+
+.light-theme .bg-gray-700 {
+  background-color: rgb(var(--bg-tertiary));
+}
+
+.light-theme .bg-gray-750 {
+  background-color: rgb(var(--bg-tertiary));
+}
+
+/* Override hardcoded gray text */
+.light-theme .text-gray-100,
+.light-theme .text-gray-200 {
+  color: rgb(var(--text-primary));
+}
+
+.light-theme .text-gray-300,
+.light-theme .text-gray-400 {
+  color: rgb(var(--text-secondary));
+}
+
+.light-theme .text-gray-500 {
+  color: rgb(var(--text-muted));
+}
+
+/* Override hardcoded borders */
+.light-theme .border-gray-700 {
+  border-color: rgb(var(--border-color));
+}
+
+.light-theme .border-gray-600 {
+  border-color: rgb(var(--border-light));
+}
+
+/* Override hardcoded hovers */
+.light-theme .hover\:bg-gray-800:hover {
+  background-color: rgb(var(--bg-tertiary));
+}
+
+.light-theme .hover\:bg-gray-700:hover {
+  background-color: rgb(var(--border-color));
+}
+
+.light-theme .hover\:bg-gray-600:hover {
+  background-color: rgb(var(--border-light));
+}
+
+/* Dynamic accent color for hardcoded indigo classes */
+.bg-indigo-600 {
+  background-color: rgb(var(--color-primary));
+}
+
+.hover\:bg-indigo-700:hover {
+  background-color: rgb(var(--color-primary-hover));
+}
+
+.text-indigo-400,
+.text-indigo-500 {
+  color: rgb(var(--color-primary));
+}
+
+.focus\:ring-indigo-500:focus {
+  --tw-ring-color: rgba(var(--color-primary-ring), 0.5);
+}
+
+/* Light theme shadows */
+.light-theme .shadow-lg {
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+}
+
+/* Custom scrollbar for dark theme */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgb(var(--bg-secondary));
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--border-light));
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--text-muted));
+}
+
+/* Toast animations */
+@keyframes slide-in {
+  from {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes shrink {
+  from {
+    width: 100%;
+  }
+  to {
+    width: 0%;
+  }
+}
+
+.animate-slide-in {
+  animation: slide-in 0.3s ease-out forwards;
+}
+
+.animate-shrink {
+  animation: shrink linear forwards;
+}
+
+@keyframes sweep-arc {
+  0%, 100% { 
+    transform: translateX(-50%) rotate(-35deg);
+  }
+  50% { 
+    transform: translateX(-50%) rotate(35deg);
+  }
+}
+
+.animate-sweep-arc {
+  animation: sweep-arc 1.5s ease-in-out infinite;
+}
+
+/* Broom sweep animation */
+@keyframes sweep {
+  0%, 100% { transform: rotate(-15deg); }
+  50% { transform: rotate(15deg); }
+}
+
+@keyframes sweep-move {
+  0%, 100% { 
+    left: 25%;
+    transform: translateX(-50%) rotate(-10deg);
+  }
+  50% { 
+    left: 75%;
+    transform: translateX(-50%) rotate(10deg);
+  }
+}
+
+@keyframes dust-line {
+  0%, 100% { 
+    clip-path: polygon(0% 0%, 30% 0%, 30% 100%, 0% 100%);
+  }
+  50% { 
+    clip-path: polygon(70% 0%, 100% 0%, 100% 100%, 70% 100%);
+  }
+}
+
+@keyframes particle-float-1 {
+  0%, 100% { opacity: 0.3; transform: translateY(0); }
+  25% { opacity: 0.8; transform: translateY(-3px); }
+  50% { opacity: 0.3; transform: translateY(0); }
+}
+
+@keyframes particle-float-2 {
+  0%, 100% { opacity: 0.3; transform: translateY(0); }
+  35% { opacity: 0.8; transform: translateY(-4px); }
+  70% { opacity: 0.3; transform: translateY(0); }
+}
+
+@keyframes particle-float-3 {
+  0%, 100% { opacity: 0.3; transform: translateY(0); }
+  50% { opacity: 0.9; transform: translateY(-5px); }
+}
+
+@keyframes particle-float-4 {
+  0%, 100% { opacity: 0.3; transform: translateY(0); }
+  65% { opacity: 0.8; transform: translateY(-4px); }
+  30% { opacity: 0.3; transform: translateY(0); }
+}
+
+@keyframes particle-float-5 {
+  0%, 100% { opacity: 0.3; transform: translateY(0); }
+  75% { opacity: 0.8; transform: translateY(-3px); }
+  50% { opacity: 0.3; transform: translateY(0); }
+}
+
+.animate-sweep {
+  animation: sweep 1.2s ease-in-out infinite;
+}
+
+.animate-sweep-move {
+  animation: sweep-move 1.5s ease-in-out infinite;
+}
+
+.animate-dust-line {
+  animation: dust-line 1.5s ease-in-out infinite;
+}
+
+.animate-particle-1 {
+  animation: particle-float-1 1.5s ease-in-out infinite;
+}
+
+.animate-particle-2 {
+  animation: particle-float-2 1.5s ease-in-out infinite 0.1s;
+}
+
+.animate-particle-3 {
+  animation: particle-float-3 1.5s ease-in-out infinite 0.2s;
+}
+
+.animate-particle-4 {
+  animation: particle-float-4 1.5s ease-in-out infinite 0.3s;
+}
+
+.animate-particle-5 {
+  animation: particle-float-5 1.5s ease-in-out infinite 0.4s;
+}
+
+.animate-dust-1 {
+  animation: particle-float-1 1.2s ease-in-out infinite;
+}
+
+.animate-dust-2 {
+  animation: particle-float-2 1.2s ease-in-out infinite 0.2s;
+}
+
+.animate-dust-3 {
+  animation: particle-float-3 1.2s ease-in-out infinite 0.4s;
+}

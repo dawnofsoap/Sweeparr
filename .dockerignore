@@ -1,0 +1,55 @@
+# Git
+.git/
+.gitignore
+
+# Dependencies (will be installed in container)
+node_modules/
+
+# Build output
+dist/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Database
+*.db
+*.db-journal
+config/
+
+# Logs
+logs/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+coverage/
+
+# Documentation
+README.md
+FEATURES.md
+LICENSE
+*.md
+
+# Local development scripts
+scripts/
+
+# Local Docker overrides
+docker-compose.override.yml
+docker-compose.local.yml
+docker-compose.*.local.yml
+.docker/
+
+# Misc
+*.tgz
+.npm
