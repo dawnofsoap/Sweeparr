@@ -39,187 +39,111 @@ Sweeparr aims to bring a modern GUI experience to Jellyfin and Emby users.
 
 ## Quick Start
 
-### Docker Compose (Recommended)
+### 1. Create Configuration Files
 
-Create a `docker-compose.yml` file:
+```bash
+# Create directory
+mkdir sweeparr && cd sweeparr
 
-```yaml
-services:
-  sweeparr:
-    image: ghcr.io/dawnofsoap/sweeparr:development-alpha
-    container_name: sweeparr
-    restart: unless-stopped
-    ports:
-      - "8484:8080"
-    environment:
-      - TZ=America/Chicago
-    volumes:
-      # Required: Config and database storage
-      - /path/to/config:/config
-      
-      # Optional: Log storage
-      - /path/to/logs:/logs
-      
-      # Required for Leaving Soon: Symlink destination (READ-WRITE)
-      - /path/to/leaving-soon:/data/leaving-soon
-      
-      # Optional: Media access for direct file operations (READ-ONLY recommended)
-      # - /path/to/movies:/data/media/movies:ro
-      # - /path/to/tv:/data/media/tv:ro
+# Download example files
+curl -O https://raw.githubusercontent.com/dawnofsoap/Sweeparr/development-alpha/docker-compose.example.yml
+curl -O https://raw.githubusercontent.com/dawnofsoap/Sweeparr/development-alpha/.env.example
+
+# Copy to active files
+cp docker-compose.example.yml docker-compose.yml
+cp .env.example .env
 ```
 
-Start the container:
+### 2. Configure Environment
+
+Edit `.env` and adjust settings for your setup:
+
+```bash
+# Minimum required changes:
+SWEEPARR_PORT=8484
+TZ=America/Chicago
+CONFIG_PATH=./config
+```
+
+### 3. Start Container
 
 ```bash
 docker-compose up -d
 ```
 
-Access the web UI at `http://localhost:8484`
+### 4. Access Web UI
+
+Open `http://localhost:8484` in your browser.
 
 ---
 
 ## Configuration
 
+All configuration is managed through environment variables in your `.env` file.
+
 ### Environment Variables
 
 | Variable | Required | Default | Description |
 |----------|:--------:|---------|-------------|
+| `SWEEPARR_VERSION` | No | `development-alpha` | Docker image tag |
+| `SWEEPARR_PORT` | No | `8484` | Web UI port |
 | `TZ` | No | `America/Chicago` | Timezone for scheduled tasks and logs |
 | `PUID` | No | `1000` | User ID for file permissions |
 | `PGID` | No | `1000` | Group ID for file permissions |
-| `PORT` | No | `8080` | Internal container port (rarely needs changing) |
-| `NODE_ENV` | No | `production` | Environment mode |
-| `DATABASE_URL` | No | `file:/config/sweeparr.db` | SQLite database path |
+| `CONFIG_PATH` | **Yes** | `./config` | Configuration and database storage |
+| `LOG_PATH` | No | `./logs` | Application logs |
+| `LEAVING_SOON_PATH` | For Leaving Soon | `./leaving-soon` | Symlink destination directory |
+| `MEDIA_MOVIES_PATH` | No | — | Movies library path (read-only recommended) |
+| `MEDIA_TV_PATH` | No | — | TV library path (read-only recommended) |
 
 ### Volume Mounts
 
-| Container Path | Required | Mode | Description |
-|----------------|:--------:|:----:|-------------|
-| `/config` | **Yes** | RW | Configuration files and SQLite database |
-| `/logs` | No | RW | Application logs |
-| `/data/leaving-soon` | For Leaving Soon | RW | Symlink destination for "Leaving Soon" libraries |
-| `/data/media/*` | No | RO | Media file access (if needed for direct operations) |
+| Container Path | Host Variable | Mode | Description |
+|----------------|---------------|:----:|-------------|
+| `/config` | `CONFIG_PATH` | RW | Configuration files and SQLite database |
+| `/logs` | `LOG_PATH` | RW | Application logs |
+| `/data/leaving-soon` | `LEAVING_SOON_PATH` | RW | Symlink destination for "Leaving Soon" libraries |
+| `/data/media/movies` | `MEDIA_MOVIES_PATH` | RO | Movies library access |
+| `/data/media/tv` | `MEDIA_TV_PATH` | RO | TV library access |
 
-### Docker Compose Examples
+### Example .env Configurations
 
 #### Minimal Setup
 
-```yaml
-services:
-  sweeparr:
-    image: ghcr.io/dawnofsoap/sweeparr:development-alpha
-    container_name: sweeparr
-    restart: unless-stopped
-    ports:
-      - "8484:8080"
-    environment:
-      - TZ=America/Chicago
-    volumes:
-      - ./config:/config
+```bash
+SWEEPARR_PORT=8484
+TZ=America/Chicago
+CONFIG_PATH=./config
 ```
 
-#### Full Setup with Leaving Soon
+#### TrueNAS Scale
 
-```yaml
-services:
-  sweeparr:
-    image: ghcr.io/dawnofsoap/sweeparr:development-alpha
-    container_name: sweeparr
-    restart: unless-stopped
-    ports:
-      - "8484:8080"
-    environment:
-      # Required
-      - TZ=America/Chicago
-      
-      # Optional: File permissions (match your media stack)
-      - PUID=1000
-      - PGID=1000
-    volumes:
-      # Required: Config and database
-      - /opt/sweeparr/config:/config
-      
-      # Optional: Logs
-      - /opt/sweeparr/logs:/logs
-      
-      # Leaving Soon symlink destinations (READ-WRITE)
-      - /mnt/media/leaving-soon:/data/leaving-soon
-      
-      # Media libraries (READ-ONLY for safety)
-      - /mnt/media/movies:/data/media/movies:ro
-      - /mnt/media/tv:/data/media/tv:ro
+```bash
+SWEEPARR_VERSION=development-alpha
+SWEEPARR_PORT=8484
+TZ=America/Chicago
+PUID=568
+PGID=568
+CONFIG_PATH=/mnt/tank/apps/sweeparr/config
+LOG_PATH=/mnt/tank/apps/sweeparr/logs
+LEAVING_SOON_PATH=/mnt/tank/media/leaving-soon
+MEDIA_MOVIES_PATH=/mnt/tank/media/movies
+MEDIA_TV_PATH=/mnt/tank/media/tv
 ```
 
-#### TrueNAS Scale Setup
+#### Unraid
 
-```yaml
-services:
-  sweeparr:
-    image: ghcr.io/dawnofsoap/sweeparr:development-alpha
-    container_name: sweeparr
-    restart: unless-stopped
-    ports:
-      - "8484:8080"
-    environment:
-      - TZ=America/Chicago
-      - PUID=568    # apps user on TrueNAS
-      - PGID=568    # apps group on TrueNAS
-    volumes:
-      # Config on app dataset
-      - /mnt/tank/apps/sweeparr/config:/config
-      - /mnt/tank/apps/sweeparr/logs:/logs
-      
-      # Media access (READ-ONLY)
-      - /mnt/tank/media/movies:/data/media/movies:ro
-      - /mnt/tank/media/tv:/data/media/tv:ro
-      
-      # Leaving Soon (READ-WRITE for symlinks)
-      - /mnt/tank/media/leaving-soon:/data/leaving-soon
-```
-
-#### Integration with Existing Media Stack
-
-```yaml
-services:
-  sweeparr:
-    image: ghcr.io/dawnofsoap/sweeparr:development-alpha
-    container_name: sweeparr
-    restart: unless-stopped
-    ports:
-      - "8484:8080"
-    environment:
-      - TZ=America/Chicago
-    volumes:
-      - sweeparr-config:/config
-      - sweeparr-logs:/logs
-      - /mnt/media/leaving-soon:/data/leaving-soon
-    networks:
-      - media-network
-    depends_on:
-      - jellyfin
-      - radarr
-      - sonarr
-
-  # Your existing services...
-  jellyfin:
-    image: jellyfin/jellyfin:latest
-    # ... jellyfin config
-
-  radarr:
-    image: linuxserver/radarr:latest
-    # ... radarr config
-
-  sonarr:
-    image: linuxserver/sonarr:latest
-    # ... sonarr config
-
-volumes:
-  sweeparr-config:
-  sweeparr-logs:
-
-networks:
-  media-network:
-    driver: bridge
+```bash
+SWEEPARR_VERSION=development-alpha
+SWEEPARR_PORT=8484
+TZ=America/Chicago
+PUID=99
+PGID=100
+CONFIG_PATH=/mnt/user/appdata/sweeparr/config
+LOG_PATH=/mnt/user/appdata/sweeparr/logs
+LEAVING_SOON_PATH=/mnt/user/media/leaving-soon
+MEDIA_MOVIES_PATH=/mnt/user/media/movies
+MEDIA_TV_PATH=/mnt/user/media/tv
 ```
 
 ---
@@ -242,7 +166,7 @@ Physical Storage: /mnt/tank/media/movies
 
 ### Configuration
 
-Path mappings are configured in the Sweeparr UI under **Settings → Path Mappings**.
+Path mappings are configured in the Sweeparr UI under **Settings → Connections**.
 
 #### Arr Apps (Radarr/Sonarr)
 
@@ -352,7 +276,7 @@ ls -la /path/to/config
 
 ### Can't connect to Radarr/Sonarr
 
-- Ensure the URL is accessible from the container (use container names if on same network)
+- Ensure the URL is accessible from the container (use container names if on same Docker network)
 - Verify API key is correct (Settings → General → API Key in Radarr/Sonarr)
 - Check if firewall rules allow container-to-container communication
 
