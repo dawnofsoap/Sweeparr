@@ -42,7 +42,7 @@ app.use(helmet({
       connectSrc: ["'self'"], // API calls to same origin
       fontSrc: ["'self'"],
       objectSrc: ["'none'"],
-      // Don't force HTTPS upgrade - allow HTTP for local/internal deployments
+      upgradeInsecureRequests: null, // Don't force HTTPS upgrade - allow HTTP for local/internal deployments
     },
   },
   crossOriginEmbedderPolicy: false, // Allow loading external images
