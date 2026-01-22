@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import { leavingSoon, mediaServers, collections } from '../api';
 import type {
   LeavingSoonSettings,
@@ -288,9 +289,9 @@ function LeavingSoonPage() {
             >
               🔄 Refresh Libraries
             </button>
-            <a href="/settings/path-mappings" className="btn btn-primary text-sm">
+            <Link to="/settings/path-mappings" className="btn btn-primary text-sm">
               ⚙️ Configure Paths
-            </a>
+            </Link>
           </div>
         </div>
 
@@ -630,7 +631,7 @@ function SettingsPanel({ settings, onClose, onSave }: SettingsPanelProps) {
         <div className="p-3 bg-blue-900/20 border border-blue-500/30 rounded-lg">
           <p className="text-sm">
             <strong>Note:</strong> Symlink folder paths are configured in{' '}
-            <a href="/settings/path-mappings" className="text-orange-400 hover:underline">Settings → Path Mappings</a>.
+            <Link to="/settings/path-mappings" className="text-orange-400 hover:underline">Settings → Path Mappings</Link>.
           </p>
         </div>
 
