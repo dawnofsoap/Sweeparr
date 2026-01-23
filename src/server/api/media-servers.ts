@@ -39,7 +39,7 @@ router.get('/:id', async (req, res, next) => {
 // Create media server
 router.post('/', async (req, res, next) => {
   try {
-    const { name, type, url, apiKey, isDefault } = req.body;
+    const { name, type, url, apiKey } = req.body;
     
     // Validate required fields
     if (!name || !type || !url || !apiKey) {
@@ -57,21 +57,12 @@ router.post('/', async (req, res, next) => {
       throw createError(`A media server with URL "${url}" already exists`, 409);
     }
     
-    // If this is set as default, unset other defaults
-    if (isDefault) {
-      await prisma.mediaServer.updateMany({
-        where: { isDefault: true },
-        data: { isDefault: false },
-      });
-    }
-    
     const server = await prisma.mediaServer.create({
       data: { 
         name, 
         type, 
         url, 
         apiKey, 
-        isDefault: isDefault || false,
         isEnabled: true,
       },
     });
@@ -92,7 +83,6 @@ router.put('/:id', async (req, res, next) => {
       type, 
       url, 
       apiKey, 
-      isDefault, 
       isEnabled,
       // Leaving Soon paths
       leavingSoonMoviesPath,
@@ -101,14 +91,6 @@ router.put('/:id', async (req, res, next) => {
       leavingSoonTvMediaPath,
     } = req.body;
     
-    // If this is set as default, unset other defaults
-    if (isDefault) {
-      await prisma.mediaServer.updateMany({
-        where: { isDefault: true, id: { not: parseInt(req.params.id) } },
-        data: { isDefault: false },
-      });
-    }
-    
     const server = await prisma.mediaServer.update({
       where: { id: parseInt(req.params.id) },
       data: { 
@@ -116,7 +98,6 @@ router.put('/:id', async (req, res, next) => {
         type, 
         url, 
         apiKey, 
-        isDefault, 
         isEnabled,
         // Only update leaving soon paths if provided (allow explicit null to clear)
         ...(leavingSoonMoviesPath !== undefined && { leavingSoonMoviesPath: leavingSoonMoviesPath || null }),

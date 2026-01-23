@@ -59,7 +59,10 @@ model ArrApp {
   url          String        @unique // Prevent duplicate services
   apiKey       String
   isEnabled    Boolean       @default(true)
-  isDefault    Boolean       @default(false)
+  
+  // Link to media server for watch history data
+  mediaServerId Int?
+  mediaServer   MediaServer?  @relation(fields: [mediaServerId], references: [id], onDelete: SetNull)
   
   // Path mappings: JSON array of { arrPath, localPath } objects
   // arrPath = path as seen by Radarr/Sonarr (e.g., "/movies")
@@ -79,7 +82,6 @@ model MediaServer {
   url                 String        @unique // Prevent duplicate servers
   apiKey              String
   isEnabled           Boolean       @default(true)
-  isDefault           Boolean       @default(false)
   
   // Path mappings: JSON array of { localPath, mediaServerPath } objects
   // localPath = path as mounted in Sweeparr container (e.g., "/data/media/movies")
@@ -97,6 +99,7 @@ model MediaServer {
   
   createdAt           DateTime      @default(now())
   updatedAt           DateTime      @updatedAt
+  arrApps             ArrApp[]      // Arr apps linked to this media server
   libraries           Library[]
   rules               Rule[]
   statisticsService   StatisticsService? @relation(fields: [statisticsServiceId], references: [id])

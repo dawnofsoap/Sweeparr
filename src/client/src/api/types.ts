@@ -30,7 +30,6 @@ export interface MediaServer {
   type: 'jellyfin' | 'emby' | 'plex';
   url: string;
   apiKey: string;
-  isDefault: boolean;
   isEnabled: boolean;
   // Leaving Soon paths
   leavingSoonMoviesPath?: string | null;
@@ -69,6 +68,8 @@ export interface ArrApp {
   url: string;
   apiKey: string;
   isEnabled: boolean;
+  mediaServerId?: number | null;
+  mediaServer?: MediaServer;
   createdAt: string;
   updatedAt: string;
 }

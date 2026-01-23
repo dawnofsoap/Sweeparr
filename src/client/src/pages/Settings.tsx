@@ -7,6 +7,7 @@ import { useToast } from '../contexts/ToastContext';
 import { LoadingSpinner } from '../components/LoadingSpinner';
 import { useConfirm } from '../components/ConfirmModal';
 import { FileBrowser } from '../components/FileBrowser';
+import Portal from '../components/Portal';
 
 interface SettingsProps {
   section?: string;
@@ -17,10 +18,6 @@ function Settings({ section = 'general' }: SettingsProps) {
   const [servers, setServers] = useState<MediaServer[]>([]);
   const [apps, setApps] = useState<ArrApp[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showServerModal, setShowServerModal] = useState(false);
-  const [showAppModal, setShowAppModal] = useState(false);
-  const [editingServer, setEditingServer] = useState<MediaServer | null>(null);
-  const [editingApp, setEditingApp] = useState<ArrApp | null>(null);
 
   const fetchData = async () => {
     setLoading(true);
@@ -42,37 +39,7 @@ function Settings({ section = 'general' }: SettingsProps) {
     fetchData();
   }, []);
 
-  const handleServerSaved = () => {
-    setShowServerModal(false);
-    setEditingServer(null);
-    fetchData();
-  };
-
-  const handleAppSaved = () => {
-    setShowAppModal(false);
-    setEditingApp(null);
-    fetchData();
-  };
-
-  const handleDeleteServer = async (id: number) => {
-    if (!confirm('Are you sure you want to delete this media server?')) return;
-    try {
-      await mediaServers.delete(id);
-      fetchData();
-    } catch (error) {
-      console.error('Failed to delete server:', error);
-    }
-  };
-
-  const handleDeleteApp = async (id: number) => {
-    if (!confirm('Are you sure you want to delete this app?')) return;
-    try {
-      await arrApps.delete(id);
-      fetchData();
-    } catch (error) {
-      console.error('Failed to delete app:', error);
-    }
-  };
+  const loadData = () => fetchData();
 
   const renderSectionContent = () => {
     if (loading) {
@@ -89,26 +56,7 @@ function Settings({ section = 'general' }: SettingsProps) {
           <ConnectionsSection
             servers={servers}
             apps={apps}
-            onAddServer={() => {
-              setEditingServer(null);
-              setShowServerModal(true);
-            }}
-            onEditServer={(server) => {
-              setEditingServer(server);
-              setShowServerModal(true);
-            }}
-            onDeleteServer={handleDeleteServer}
-            onTestServer={(id) => mediaServers.test(id)}
-            onAddApp={() => {
-              setEditingApp(null);
-              setShowAppModal(true);
-            }}
-            onEditApp={(app) => {
-              setEditingApp(app);
-              setShowAppModal(true);
-            }}
-            onDeleteApp={handleDeleteApp}
-            onTestApp={(id) => arrApps.test(id)}
+            onRefresh={loadData}
           />
         );
       case 'storage':
@@ -132,31 +80,6 @@ function Settings({ section = 'general' }: SettingsProps) {
     <div className="h-full">
       {/* Settings Content */}
       {renderSectionContent()}
-
-      {/* Modals */}
-      {showServerModal && (
-        <MediaServerModal
-          server={editingServer}
-          onClose={() => {
-            setShowServerModal(false);
-            setEditingServer(null);
-          }}
-          onSaved={handleServerSaved}
-          onDelete={handleDeleteServer}
-        />
-      )}
-
-      {showAppModal && (
-        <ArrAppModal
-          app={editingApp}
-          onClose={() => {
-            setShowAppModal(false);
-            setEditingApp(null);
-          }}
-          onSaved={handleAppSaved}
-          onDelete={handleDeleteApp}
-        />
-      )}
     </div>
   );
 }
@@ -169,35 +92,20 @@ function Settings({ section = 'general' }: SettingsProps) {
 interface ConnectionsSectionProps {
   servers: MediaServer[];
   apps: ArrApp[];
-  onAddServer: () => void;
-  onEditServer: (server: MediaServer) => void;
-  onDeleteServer: (id: number) => void;
-  onTestServer: (id: number) => Promise<{ data: ConnectionTestResult }>;
-  onAddApp: () => void;
-  onEditApp: (app: ArrApp) => void;
-  onDeleteApp: (id: number) => void;
-  onTestApp: (id: number) => Promise<{ data: ConnectionTestResult }>;
+  onRefresh: () => void;
 }
 
-function ConnectionsSection({
-  servers,
-  apps,
-  onAddServer,
-  onEditServer,
-  onDeleteServer,
-  onTestServer,
-  onAddApp,
-  onEditApp,
-  onDeleteApp,
-  onTestApp,
-}: ConnectionsSectionProps) {
+function ConnectionsSection({ servers, apps, onRefresh }: ConnectionsSectionProps) {
   const [statServices, setStatServices] = useState<StatisticsService[]>([]);
   const [statsLoading, setStatsLoading] = useState(true);
-  const [showStatsModal, setShowStatsModal] = useState(false);
-  const [editingStatsService, setEditingStatsService] = useState<StatisticsService | null>(null);
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [pathMappingCounts, setPathMappingCounts] = useState<Record<string, number>>({});
   const addMenuRef = useRef<HTMLDivElement>(null);
+  
+  // Unified modal state
+  const [showModal, setShowModal] = useState(false);
+  const [editingService, setEditingService] = useState<any>(null);
+  const [newServiceType, setNewServiceType] = useState<ConnectionServiceType | null>(null);
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -264,20 +172,27 @@ function ConnectionsSection({
     }
   }, [apps, servers]);
 
-  const handleDeleteStatsService = async (id: number) => {
-    if (!confirm('Are you sure you want to delete this statistics service?')) return;
+  const handleDelete = async (id: number, category: string) => {
     try {
-      const { statisticsServices: statsApi } = await import('../api');
-      await statsApi.delete(id);
-      setStatServices(statServices.filter(s => s.id !== id));
+      if (category === 'server') {
+        await mediaServers.delete(id);
+      } else if (category === 'arr') {
+        await arrApps.delete(id);
+      } else {
+        await statisticsServices.delete(id);
+        setStatServices(statServices.filter(s => s.id !== id));
+      }
+      onRefresh();
     } catch (error) {
-      console.error('Failed to delete statistics service:', error);
+      console.error('Failed to delete service:', error);
     }
   };
 
-  const handleStatsSaved = async () => {
-    setShowStatsModal(false);
-    setEditingStatsService(null);
+  const handleSaved = async () => {
+    setShowModal(false);
+    setEditingService(null);
+    setNewServiceType(null);
+    // Refresh stats services
     try {
       const { statisticsServices: statsApi } = await import('../api');
       const response = await statsApi.list();
@@ -285,6 +200,20 @@ function ConnectionsSection({
     } catch (error) {
       console.error('Failed to refresh statistics services:', error);
     }
+    onRefresh();
+  };
+
+  const openAddModal = (type: ConnectionServiceType) => {
+    setShowAddMenu(false);
+    setEditingService(null);
+    setNewServiceType(type);
+    setShowModal(true);
+  };
+
+  const openEditModal = (service: any, category: string) => {
+    setEditingService({ ...service, _category: category });
+    setNewServiceType(null);
+    setShowModal(true);
   };
 
   // Combine all services into a unified list
@@ -295,22 +224,7 @@ function ConnectionsSection({
   ];
 
   const handleAddClick = (type: string) => {
-    setShowAddMenu(false);
-    switch (type) {
-      case 'jellyfin':
-      case 'emby':
-        onAddServer();
-        break;
-      case 'radarr':
-      case 'sonarr':
-        onAddApp();
-        break;
-      case 'jellystat':
-      case 'tautulli':
-        setEditingStatsService(null);
-        setShowStatsModal(true);
-        break;
-    }
+    openAddModal(type as ConnectionServiceType);
   };
 
   const isEmpty = allServices.length === 0 && !statsLoading;
@@ -437,35 +351,32 @@ function ConnectionsSection({
                 type={service.type}
                 url={service.url}
                 pathMappingCount={pathCount}
-                onEdit={() => {
-                  if (service.serviceCategory === 'server') {
-                    onEditServer(service as MediaServer);
-                  } else if (service.serviceCategory === 'arr') {
-                    onEditApp(service as ArrApp);
-                  } else {
-                    setEditingStatsService(service as StatisticsService);
-                    setShowStatsModal(true);
-                  }
-                }}
+                linkedServerName={service.serviceCategory === 'arr' ? (service as any).mediaServer?.name : undefined}
+                onEdit={() => openEditModal(service, service.serviceCategory)}
               />
             );
           })}
         </div>
       )}
 
-      {/* Statistics Service Modal */}
-      {showStatsModal && (
-        <StatisticsServiceModal
-          service={editingStatsService}
+      {/* Unified Connection Modal */}
+      {showModal && (
+        <ConnectionModal
+          service={editingService}
+          serviceType={newServiceType || undefined}
+          servers={servers}
           onClose={() => {
-            setShowStatsModal(false);
-            setEditingStatsService(null);
+            setShowModal(false);
+            setEditingService(null);
+            setNewServiceType(null);
           }}
-          onSaved={handleStatsSaved}
+          onSaved={handleSaved}
           onDelete={(id) => {
-            handleDeleteStatsService(id);
-            setShowStatsModal(false);
-            setEditingStatsService(null);
+            const category = editingService?._category || 
+              (newServiceType && getConnectionServiceCategory(newServiceType));
+            handleDelete(id, category || 'stats');
+            setShowModal(false);
+            setEditingService(null);
           }}
         />
       )}
@@ -479,10 +390,11 @@ interface UnifiedConnectionRowProps {
   type: string;
   url: string;
   pathMappingCount?: number;
+  linkedServerName?: string;
   onEdit: () => void;
 }
 
-function UnifiedConnectionRow({ name, type, url, pathMappingCount, onEdit }: UnifiedConnectionRowProps) {
+function UnifiedConnectionRow({ name, type, url, pathMappingCount, linkedServerName, onEdit }: UnifiedConnectionRowProps) {
   // Truncate URL for display
   const displayUrl = url.replace(/^https?:\/\//, '').substring(0, 30) + (url.length > 40 ? '...' : '');
   
@@ -520,6 +432,11 @@ function UnifiedConnectionRow({ name, type, url, pathMappingCount, onEdit }: Uni
       </div>
       
       <div className="flex items-center gap-4">
+        {linkedServerName && (
+          <span className="text-xs text-gray-400" title="Linked media server">
+            → {linkedServerName}
+          </span>
+        )}
         {showPathMappings && pathMappingCount !== undefined && pathMappingCount > 0 && (
           <span className="text-xs text-gray-400">
             {pathMappingCount} path{pathMappingCount !== 1 ? 's' : ''}
@@ -748,6 +665,9 @@ function StorageSection() {
     );
   }
 
+  const hasMultipleSources = sources.length > 1;
+  const overallPercent = parseFloat(summary?.overallUsedPercent || '0');
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -761,13 +681,15 @@ function StorageSection() {
           </p>
         </div>
         <div className="flex gap-2">
-          <button
-            onClick={handleRefreshAll}
-            disabled={refreshing}
-            className="btn btn-secondary"
-          >
-            {refreshing ? 'Refreshing...' : 'Refresh All'}
-          </button>
+          {sources.length > 0 && (
+            <button
+              onClick={handleRefreshAll}
+              disabled={refreshing}
+              className="btn btn-secondary"
+            >
+              {refreshing ? 'Refreshing...' : 'Refresh All'}
+            </button>
+          )}
           <button
             onClick={() => {
               setEditingSource(null);
@@ -780,51 +702,40 @@ function StorageSection() {
         </div>
       </div>
 
-      {/* Summary Card */}
-      {sources.length > 0 && (
-        <div className="card p-6">
-          <h3 className="text-lg font-semibold mb-4">Storage Overview</h3>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-            <div>
-              <p className="text-sm text-gray-400">Total Capacity</p>
-              <p className="text-2xl font-bold">{summary?.totalSizeFormatted || '—'}</p>
+      {/* Summary - only show when multiple sources */}
+      {hasMultipleSources && summary && (
+        <div className="card p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-6">
+              <div>
+                <span className="text-sm text-gray-400">Total: </span>
+                <span className="font-semibold">{summary.totalSizeFormatted}</span>
+              </div>
+              <div>
+                <span className="text-sm text-gray-400">Used: </span>
+                <span className="font-semibold text-orange-400">{summary.totalUsedFormatted}</span>
+              </div>
+              <div>
+                <span className="text-sm text-gray-400">Free: </span>
+                <span className="font-semibold text-green-400">{summary.totalFreeFormatted}</span>
+              </div>
             </div>
-            <div>
-              <p className="text-sm text-gray-400">Used</p>
-              <p className="text-2xl font-bold text-orange-400">{summary?.totalUsedFormatted || '—'}</p>
-            </div>
-            <div>
-              <p className="text-sm text-gray-400">Free</p>
-              <p className="text-2xl font-bold text-green-400">{summary?.totalFreeFormatted || '—'}</p>
-            </div>
-            <div>
-              <p className="text-sm text-gray-400">Overall Usage</p>
-              <p className="text-2xl font-bold">{summary?.overallUsedPercent ?? '—'}%</p>
-            </div>
-          </div>
-          
-          {/* Overall progress bar */}
-          <div className="mt-4">
-            <div className="h-4 bg-gray-700 rounded-full overflow-hidden">
-              <div
-                className={`h-full transition-all duration-300 ${
-                  parseFloat(summary?.overallUsedPercent || '0') >= 90
-                    ? 'bg-red-500'
-                    : parseFloat(summary?.overallUsedPercent || '0') >= 75
-                    ? 'bg-orange-500'
-                    : 'bg-green-500'
-                }`}
-                style={{ width: `${summary?.overallUsedPercent || 0}%` }}
-              />
+            <div className="flex items-center gap-3">
+              <div className="w-32 h-2 bg-gray-700 rounded-full overflow-hidden">
+                <div
+                  className={`h-full transition-all ${
+                    overallPercent >= 90 ? 'bg-red-500' : overallPercent >= 75 ? 'bg-orange-500' : 'bg-green-500'
+                  }`}
+                  style={{ width: `${overallPercent}%` }}
+                />
+              </div>
+              <span className="text-sm font-medium w-12">{summary.overallUsedPercent}%</span>
             </div>
           </div>
-
-          {summary && summary.sourcesAboveThreshold > 0 && (
-            <div className="mt-4 p-3 bg-red-900/50 border border-red-700 rounded-lg">
-              <p className="text-red-300">
-                ⚠️ {summary.sourcesAboveThreshold} storage source{summary.sourcesAboveThreshold > 1 ? 's are' : ' is'} above threshold
-              </p>
-            </div>
+          {summary.sourcesAboveThreshold > 0 && (
+            <p className="text-sm text-red-400 mt-2">
+              ⚠️ {summary.sourcesAboveThreshold} source{summary.sourcesAboveThreshold > 1 ? 's' : ''} above threshold
+            </p>
           )}
         </div>
       )}
@@ -848,7 +759,7 @@ function StorageSection() {
           </button>
         </div>
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-3">
           {sources.map((source) => (
             <StorageCard
               key={source.id}
@@ -904,13 +815,8 @@ function StorageCard({ source, onEdit, onDelete, onRefresh }: StorageCardProps) 
     try {
       await storageSources.refresh(source.id);
       toast.success(`Refreshed ${source.name}`);
-      try {
-        await onRefresh();
-      } catch (fetchError) {
-        console.error('Failed to refresh data after storage update:', fetchError);
-      }
+      await onRefresh();
     } catch (error: any) {
-      console.error('Failed to refresh storage:', error);
       toast.error(`Failed to refresh: ${error.message || 'Unknown error'}`);
     } finally {
       setRefreshing(false);
@@ -923,6 +829,7 @@ function StorageCard({ source, onEdit, onDelete, onRefresh }: StorageCardProps) 
     try {
       const result = await storageSources.test(source.id);
       setTestResult(result.data);
+      setTimeout(() => setTestResult(null), 5000);
     } catch (error: any) {
       setTestResult({ connected: false, message: error.message || 'Test failed' });
     } finally {
@@ -930,160 +837,132 @@ function StorageCard({ source, onEdit, onDelete, onRefresh }: StorageCardProps) 
     }
   };
 
-  const getTypeLabel = (type: StorageSourceType) => {
-    switch (type) {
-      case 'local': return 'Local Path';
-      case 'smb': return 'SMB/CIFS';
-      case 'nfs': return 'NFS';
-      case 'truenas': return 'TrueNAS';
-      default: return type;
-    }
-  };
-
-  const getTypeIcon = (type: StorageSourceType) => {
-    switch (type) {
-      case 'local': return '📁';
-      case 'smb': return '🪟';
-      case 'nfs': return '🐧';
-      case 'truenas': return '🐡';
-      default: return '💾';
-    }
+  const getSubtitle = () => {
+    const parts: string[] = [];
+    if (source.type === 'truenas') parts.push('TrueNAS');
+    else if (source.type === 'local') parts.push('Local');
+    else if (source.type === 'smb') parts.push('SMB');
+    else if (source.type === 'nfs') parts.push('NFS');
+    
+    if (source.host) parts.push(source.host);
+    if (source.pool) parts.push(`Pool: ${source.pool}`);
+    return parts.join(' \u2022 ');
   };
 
   return (
-    <div className={`card p-4 ${isAboveThreshold ? 'border border-red-700' : ''}`}>
-      <div className="flex items-start justify-between mb-4">
-        <div className="flex items-center gap-3">
-          <div className="w-12 h-12 bg-gray-700 rounded-lg flex items-center justify-center text-2xl">
-            {source.type === 'truenas' ? (
-              <ServiceLogo type="truenas" size={32} />
-            ) : (
-              getTypeIcon(source.type as StorageSourceType)
+    <div 
+      className={`card p-4 hover:bg-hover transition-colors cursor-pointer group ${isAboveThreshold ? 'border border-red-700' : ''}`}
+      onClick={onEdit}
+    >
+      <div className="flex items-center gap-4">
+        {/* Icon */}
+        <div className="w-10 h-10 bg-gray-700 rounded-lg flex items-center justify-center flex-shrink-0">
+          {source.type === 'truenas' ? (
+            <ServiceLogo type="truenas" size={24} />
+          ) : (
+            <span className="text-xl">{source.type === 'local' ? '\ud83d\udcc1' : source.type === 'smb' ? '\ud83e\ude9f' : '\ud83d\udcbe'}</span>
+          )}
+        </div>
+
+        {/* Info */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="font-medium truncate">{source.name}</span>
+            {!source.isEnabled && (
+              <span className="text-xs px-1.5 py-0.5 rounded bg-gray-700 text-gray-400">Disabled</span>
             )}
           </div>
-          <div>
-            <h3 className="font-semibold text-lg">{source.name}</h3>
-            <p className="text-sm text-gray-400">
-              {getTypeLabel(source.type as StorageSourceType)}
-              {source.path && ` • ${source.path}`}
-              {source.host && ` • ${source.host}`}
-              {source.pool && ` • Pool: ${source.pool}`}
-              {source.dataset && ` • Dataset: ${source.dataset}`}
-            </p>
-          </div>
+          <p className="text-sm text-gray-500 truncate">{getSubtitle()}</p>
         </div>
-        <div className="flex items-center gap-2">
-          <span
-            className={`px-2 py-1 rounded text-xs ${
-              source.isEnabled
-                ? 'bg-green-900 text-green-300'
-                : 'bg-gray-700 text-gray-400'
-            }`}
-          >
-            {source.isEnabled ? 'Enabled' : 'Disabled'}
-          </span>
-          {source.autoCleanup && (
-            <span className="px-2 py-1 rounded text-xs bg-orange-900 text-orange-300">
-              Auto-cleanup
-            </span>
-          )}
-        </div>
-      </div>
 
-      {/* Usage Stats */}
-      {source.lastSize && source.lastUsed ? (
-        <div className="space-y-3">
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-gray-400">
-              {source.lastUsedFormatted} used of {source.lastSizeFormatted}
-            </span>
-            <span className={`font-medium ${isAboveThreshold ? 'text-red-400' : ''}`}>
-              {source.usedPercent}% used
-            </span>
-          </div>
-          
-          <div className="relative">
-            <div className="h-3 bg-gray-700 rounded-full overflow-hidden">
+        {/* Usage bar and stats */}
+        {source.lastSize && source.lastUsed ? (
+          <div className="flex items-center gap-4 flex-shrink-0">
+            <div className="text-right text-sm">
+              <span className="text-gray-400">{source.lastUsedFormatted}</span>
+              <span className="text-gray-600"> / </span>
+              <span className="text-gray-300">{source.lastSizeFormatted}</span>
+            </div>
+            <div className="w-24 relative">
+              <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
+                <div
+                  className={`h-full transition-all ${isAboveThreshold ? 'bg-red-500' : usedPercent >= 75 ? 'bg-orange-500' : 'bg-green-500'}`}
+                  style={{ width: `${usedPercent}%` }}
+                />
+              </div>
+              {/* Threshold marker */}
               <div
-                className={`h-full transition-all duration-300 ${
-                  isAboveThreshold
-                    ? 'bg-red-500'
-                    : usedPercent >= 75
-                    ? 'bg-orange-500'
-                    : 'bg-green-500'
-                }`}
-                style={{ width: `${usedPercent}%` }}
+                className="absolute top-0 h-2 border-r border-gray-400"
+                style={{ left: `${source.thresholdPct}%` }}
               />
             </div>
-            {/* Threshold marker */}
-            <div
-              className="absolute top-0 h-3 border-r-2 border-yellow-400"
-              style={{ left: `${source.thresholdPct}%` }}
-              title={`Threshold: ${source.thresholdPct}%`}
-            />
+            <span className={`text-sm font-medium w-12 text-right ${isAboveThreshold ? 'text-red-400' : ''}`}>
+              {source.usedPercent}%
+            </span>
           </div>
+        ) : (
+          <span className="text-sm text-gray-500">No data</span>
+        )}
 
-          <div className="flex items-center justify-between text-xs text-gray-500">
-            <span>{source.lastFreeFormatted} free</span>
-            <span>Threshold: {source.thresholdPct}%</span>
-          </div>
-
-          {source.lastChecked && (
-            <p className="text-xs text-gray-500">
-              Last checked: {new Date(source.lastChecked).toLocaleString()}
-            </p>
-          )}
-        </div>
-      ) : (
-        <div className="text-center py-4 text-gray-400">
-          <p>No data available</p>
+        {/* Actions - show on hover */}
+        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
           <button
-            onClick={handleRefresh}
-            disabled={refreshing}
-            className="btn btn-secondary text-sm mt-2"
+            onClick={(e) => { e.stopPropagation(); handleTest(); }}
+            disabled={testing}
+            className="p-2 hover:bg-gray-700 rounded text-gray-400 hover:text-white"
+            title="Test connection"
           >
-            {refreshing ? 'Refreshing...' : 'Refresh Stats'}
+            {testing ? (
+              <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+              </svg>
+            ) : (
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            )}
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); handleRefresh(); }}
+            disabled={refreshing}
+            className="p-2 hover:bg-gray-700 rounded text-gray-400 hover:text-white"
+            title="Refresh stats"
+          >
+            {refreshing ? (
+              <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+              </svg>
+            ) : (
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+            )}
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); onDelete(); }}
+            className="p-2 hover:bg-red-900/50 rounded text-gray-400 hover:text-red-400"
+            title="Delete"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
           </button>
         </div>
-      )}
 
-      {/* Test Result */}
+        {/* Chevron */}
+        <svg className="w-5 h-5 text-gray-500 group-hover:text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+        </svg>
+      </div>
+
+      {/* Test Result - inline */}
       {testResult && (
-        <div
-          className={`mt-4 p-3 rounded text-sm ${
-            testResult.connected
-              ? 'bg-green-900/50 text-green-300 border border-green-700'
-              : 'bg-red-900/50 text-red-300 border border-red-700'
-          }`}
-        >
-          {testResult.connected ? '✓ ' : '✗ '}
-          {testResult.message}
+        <div className={`mt-3 text-sm ${testResult.connected ? 'text-green-400' : 'text-red-400'}`}>
+          {testResult.connected ? '\u2713 ' : '\u2717 '}{testResult.message}
         </div>
       )}
-
-      {/* Actions */}
-      <div className="flex items-center justify-end gap-2 mt-4 pt-4 border-t border-gray-700">
-        <button
-          onClick={handleTest}
-          disabled={testing}
-          className="btn btn-secondary text-sm"
-        >
-          {testing ? 'Testing...' : 'Test'}
-        </button>
-        <button
-          onClick={handleRefresh}
-          disabled={refreshing}
-          className="btn btn-secondary text-sm"
-        >
-          {refreshing ? 'Refreshing...' : 'Refresh'}
-        </button>
-        <button onClick={onEdit} className="btn btn-secondary text-sm">
-          Edit
-        </button>
-        <button onClick={onDelete} className="btn btn-danger text-sm">
-          Delete
-        </button>
-      </div>
     </div>
   );
 }
@@ -1106,7 +985,7 @@ interface StorageSourceModalProps {
 function StorageSourceModal({ source, onClose, onSaved }: StorageSourceModalProps) {
   const [form, setForm] = useState({
     name: source?.name || '',
-    type: source?.type || 'local' as StorageSourceType,
+    type: source?.type || 'truenas' as StorageSourceType,
     path: source?.path || '',
     host: source?.host || '',
     share: source?.share || '',
@@ -1127,6 +1006,7 @@ function StorageSourceModal({ source, onClose, onSaved }: StorageSourceModalProp
   const [error, setError] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<ConnectionTestResult | null>(null);
   const [hasTested, setHasTested] = useState(!!source);
+  const [showApiHelp, setShowApiHelp] = useState(false);
   
   // TrueNAS specific state
   const [pools, setPools] = useState<TrueNASPool[]>([]);
@@ -1233,6 +1113,34 @@ function StorageSourceModal({ source, onClose, onSaved }: StorageSourceModalProp
     }
   };
 
+  const handlePoolChange = async (newPool: string) => {
+    setForm({ ...form, pool: newPool, dataset: '' });
+    setDatasets([]);
+    
+    if (newPool) {
+      setLoadingDatasets(true);
+      try {
+        const apiKeyToUse = form.apiKey || source?.apiKey;
+        if (source?.id) {
+          const datasetsRes = await storageSources.getDatasets(source.id, newPool);
+          setDatasets(datasetsRes.data);
+        } else if (apiKeyToUse) {
+          const datasetsRes = await storageSources.fetchDatasets({
+            host: form.host,
+            apiKey: apiKeyToUse,
+            useSsl: form.useSsl,
+            pool: newPool,
+          });
+          setDatasets(datasetsRes.data);
+        }
+      } catch (error) {
+        console.error('Failed to load datasets:', error);
+      } finally {
+        setLoadingDatasets(false);
+      }
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
@@ -1287,305 +1195,272 @@ function StorageSourceModal({ source, onClose, onSaved }: StorageSourceModalProp
     }
   };
 
-  const renderTypeSpecificFields = () => {
-    switch (form.type) {
-      case 'local':
-        return (
-          <div>
-            <label className="block text-sm font-medium form-label mb-1">Path</label>
-            <input
-              type="text"
-              value={form.path}
-              onChange={(e) => setForm({ ...form, path: e.target.value })}
-              className="input w-full"
-              placeholder="/media/movies"
-              required
-            />
-            <p className="text-xs text-gray-500 mt-1">
-              The local path to monitor. This should be a path visible inside the container.
-            </p>
+  const renderTrueNASFields = () => (
+    <>
+      {/* URL */}
+      <div>
+        <label className="block text-sm font-medium form-label mb-1">URL</label>
+        <input
+          type="text"
+          value={form.host.startsWith('https://') ? form.host : `https://${form.host}`}
+          onChange={(e) => {
+            let val = e.target.value;
+            // Ensure https:// prefix
+            if (!val.startsWith('https://')) {
+              val = val.replace(/^http:\/\//, '');
+              if (!val.startsWith('https://')) val = 'https://' + val.replace(/^\/+/, '');
+            }
+            setForm({ ...form, host: val.replace(/^https:\/\//, '') });
+          }}
+          className="input w-full"
+          placeholder="https://192.168.1.100"
+          required
+        />
+      </div>
+
+      {/* API Key */}
+      <div>
+        <div className="flex items-center justify-between mb-1">
+          <label className="text-sm font-medium form-label">
+            API Key {source && <span className="text-gray-500 font-normal">(leave blank to keep current)</span>}
+          </label>
+          <button
+            type="button"
+            onClick={() => setShowApiHelp(!showApiHelp)}
+            className="text-xs text-primary hover:underline"
+          >
+            {showApiHelp ? 'Hide help' : 'How to get API key?'}
+          </button>
+        </div>
+        <input
+          type="password"
+          value={form.apiKey}
+          onChange={(e) => setForm({ ...form, apiKey: e.target.value })}
+          className="input w-full"
+          placeholder={source ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : 'Enter API key'}
+          required={!source}
+        />
+        {showApiHelp && (
+          <div className="mt-2 p-2 bg-gray-800 rounded text-xs text-gray-400">
+            In TrueNAS SCALE: <strong>Credentials → Users</strong> → select user → Edit → enable <strong>"TrueNAS Access"</strong> (Readonly Admin is sufficient) → Save. Then click <strong>"Add API Key"</strong>.
           </div>
-        );
+        )}
+      </div>
 
-      case 'smb':
-        return (
-          <>
-            <div>
-              <label className="block text-sm font-medium form-label mb-1">Mount Path</label>
+      {/* Pool & Dataset */}
+      {(pools.length > 0 || form.pool) && (
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm font-medium form-label mb-1">Pool</label>
+            {loadingPools ? (
+              <div className="input w-full flex items-center text-gray-500 text-sm">Loading...</div>
+            ) : pools.length > 0 ? (
+              <select
+                value={form.pool}
+                onChange={(e) => handlePoolChange(e.target.value)}
+                className="input w-full"
+              >
+                <option value="">Auto (first pool)</option>
+                {pools.map((pool) => (
+                  <option key={pool.name} value={pool.name}>
+                    {pool.name} ({pool.usedPercent}%)
+                  </option>
+                ))}
+              </select>
+            ) : (
               <input
                 type="text"
-                value={form.path}
-                onChange={(e) => setForm({ ...form, path: e.target.value })}
+                value={form.pool}
+                onChange={(e) => setForm({ ...form, pool: e.target.value })}
                 className="input w-full"
-                placeholder="/mnt/media"
-                required
+                placeholder="Auto"
               />
-              <p className="text-xs text-gray-500 mt-1">
-                The mount point where the SMB share is mounted inside the container.
-              </p>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium form-label mb-1">Host</label>
-                <input
-                  type="text"
-                  value={form.host}
-                  onChange={(e) => setForm({ ...form, host: e.target.value })}
-                  className="input w-full"
-                  placeholder="192.168.1.100"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium form-label mb-1">Share Name</label>
-                <input
-                  type="text"
-                  value={form.share}
-                  onChange={(e) => setForm({ ...form, share: e.target.value })}
-                  className="input w-full"
-                  placeholder="media"
-                  required
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium form-label mb-1">Username (optional)</label>
-                <input
-                  type="text"
-                  value={form.username}
-                  onChange={(e) => setForm({ ...form, username: e.target.value })}
-                  className="input w-full"
-                  placeholder="username"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium form-label mb-1">Password (optional)</label>
-                <input
-                  type="password"
-                  value={form.password}
-                  onChange={(e) => setForm({ ...form, password: e.target.value })}
-                  className="input w-full"
-                  placeholder="••••••••"
-                />
-              </div>
-            </div>
-          </>
-        );
-
-      case 'nfs':
-        return (
-          <>
-            <div>
-              <label className="block text-sm font-medium form-label mb-1">Mount Path</label>
+            )}
+          </div>
+          <div>
+            <label className="block text-sm font-medium form-label mb-1">Dataset</label>
+            {loadingDatasets ? (
+              <div className="input w-full flex items-center text-gray-500 text-sm">Loading...</div>
+            ) : datasets.length > 0 ? (
+              <select
+                value={form.dataset}
+                onChange={(e) => setForm({ ...form, dataset: e.target.value })}
+                className="input w-full"
+              >
+                <option value="">None (pool root)</option>
+                {datasets.map((ds) => (
+                  <option key={ds.id} value={ds.name}>{ds.name}</option>
+                ))}
+              </select>
+            ) : (
               <input
                 type="text"
-                value={form.path}
-                onChange={(e) => setForm({ ...form, path: e.target.value })}
+                value={form.dataset}
+                onChange={(e) => setForm({ ...form, dataset: e.target.value })}
                 className="input w-full"
-                placeholder="/mnt/media"
-                required
+                placeholder="None"
               />
-              <p className="text-xs text-gray-500 mt-1">
-                The mount point where the NFS share is mounted inside the container.
-              </p>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium form-label mb-1">Host</label>
-                <input
-                  type="text"
-                  value={form.host}
-                  onChange={(e) => setForm({ ...form, host: e.target.value })}
-                  className="input w-full"
-                  placeholder="192.168.1.100"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium form-label mb-1">Export Path</label>
-                <input
-                  type="text"
-                  value={form.export}
-                  onChange={(e) => setForm({ ...form, export: e.target.value })}
-                  className="input w-full"
-                  placeholder="/mnt/tank/media"
-                  required
-                />
-              </div>
-            </div>
-          </>
-        );
+            )}
+          </div>
+        </div>
+      )}
+    </>
+  );
 
-      case 'truenas':
-        return (
-          <>
-            <div>
-              <label className="block text-sm font-medium form-label mb-1">TrueNAS URL</label>
-              <div className="flex">
-                <span className="inline-flex items-center px-3 bg-gray-700 border border-r-0 border-gray-600 rounded-l text-gray-400 text-sm">
-                  https://
-                </span>
-                <input
-                  type="text"
-                  value={form.host.replace(/^https?:\/\//, '')}
-                  onChange={(e) => {
-                    const cleanHost = e.target.value.replace(/^https?:\/\//, '');
-                    setForm({ ...form, host: cleanHost });
-                  }}
-                  className="input w-full rounded-l-none"
-                  placeholder="truenas.local or 192.168.1.100"
-                  required
-                />
-              </div>
-              <p className="text-xs text-gray-500 mt-1">
-                The hostname or IP of your TrueNAS server. HTTPS is required for API authentication.
-              </p>
-            </div>
-            <div>
-              <label className="block text-sm font-medium form-label mb-1">
-                API Key {source && '(leave blank to keep current)'}
-              </label>
-              <input
-                type="password"
-                value={form.apiKey}
-                onChange={(e) => setForm({ ...form, apiKey: e.target.value })}
-                className="input w-full"
-                placeholder={source ? '••••••••' : 'Enter API key'}
-                required={!source}
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                In TrueNAS SCALE: Credentials → Users → select user → Edit → enable "TrueNAS Access" (Readonly Admin is sufficient) → Save. Then click "Add API Key" in the user details.
-              </p>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium form-label mb-1">Pool (optional)</label>
-                {loadingPools ? (
-                  <div className="input w-full flex items-center text-gray-500">Loading pools...</div>
-                ) : pools.length > 0 ? (
-                  <select
-                    value={form.pool}
-                    onChange={async (e) => {
-                      const newPool = e.target.value;
-                      setForm({ ...form, pool: newPool, dataset: '' });
-                      setDatasets([]);
-                      
-                      if (newPool) {
-                        setLoadingDatasets(true);
-                        try {
-                          const apiKeyToUse = form.apiKey || source?.apiKey;
-                          if (source?.id) {
-                            const datasetsRes = await storageSources.getDatasets(source.id, newPool);
-                            setDatasets(datasetsRes.data);
-                          } else if (apiKeyToUse) {
-                            const datasetsRes = await storageSources.fetchDatasets({
-                              host: form.host,
-                              apiKey: apiKeyToUse,
-                              useSsl: form.useSsl,
-                              pool: newPool,
-                            });
-                            setDatasets(datasetsRes.data);
-                          }
-                        } catch (error) {
-                          console.error('Failed to load datasets:', error);
-                        } finally {
-                          setLoadingDatasets(false);
-                        }
-                      }
-                    }}
-                    className="input w-full"
-                  >
-                    <option value="">Select a pool...</option>
-                    {pools.map((pool) => (
-                      <option key={pool.name} value={pool.name}>
-                        {pool.name} ({pool.usedPercent}% used)
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <input
-                    type="text"
-                    value={form.pool}
-                    onChange={(e) => setForm({ ...form, pool: e.target.value })}
-                    className="input w-full"
-                    placeholder="tank"
-                  />
-                )}
-              </div>
-              <div>
-                <label className="block text-sm font-medium form-label mb-1">Dataset (optional)</label>
-                {loadingDatasets ? (
-                  <div className="input w-full flex items-center text-gray-500">Loading datasets...</div>
-                ) : datasets.length > 0 ? (
-                  <select
-                    value={form.dataset}
-                    onChange={(e) => setForm({ ...form, dataset: e.target.value })}
-                    className="input w-full"
-                  >
-                    <option value="">Select a dataset...</option>
-                    {datasets.map((ds) => (
-                      <option key={ds.id} value={ds.name}>
-                        {ds.name}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <input
-                    type="text"
-                    value={form.dataset}
-                    onChange={(e) => setForm({ ...form, dataset: e.target.value })}
-                    className="input w-full"
-                    placeholder="tank/media"
-                  />
-                )}
-              </div>
-            </div>
-            <p className="text-xs text-gray-500">
-              Leave pool/dataset empty to monitor the first pool found. Specify a dataset for more granular monitoring.
-            </p>
-          </>
-        );
+  const renderLocalFields = () => (
+    <div>
+      <label className="block text-sm font-medium form-label mb-1">Path</label>
+      <input
+        type="text"
+        value={form.path}
+        onChange={(e) => setForm({ ...form, path: e.target.value })}
+        className="input w-full"
+        placeholder="/media/movies"
+        required
+      />
+      <p className="text-xs text-gray-500 mt-1">Path visible inside the container</p>
+    </div>
+  );
 
-      default:
-        return null;
-    }
-  };
+  const renderSMBFields = () => (
+    <>
+      <div>
+        <label className="block text-sm font-medium form-label mb-1">Mount Path</label>
+        <input
+          type="text"
+          value={form.path}
+          onChange={(e) => setForm({ ...form, path: e.target.value })}
+          className="input w-full"
+          placeholder="/mnt/media"
+          required
+        />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-sm font-medium form-label mb-1">Host</label>
+          <input
+            type="text"
+            value={form.host}
+            onChange={(e) => setForm({ ...form, host: e.target.value })}
+            className="input w-full"
+            placeholder="192.168.1.100"
+            required
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium form-label mb-1">Share</label>
+          <input
+            type="text"
+            value={form.share}
+            onChange={(e) => setForm({ ...form, share: e.target.value })}
+            className="input w-full"
+            placeholder="media"
+            required
+          />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-sm font-medium form-label mb-1">Username</label>
+          <input
+            type="text"
+            value={form.username}
+            onChange={(e) => setForm({ ...form, username: e.target.value })}
+            className="input w-full"
+            placeholder="optional"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium form-label mb-1">Password</label>
+          <input
+            type="password"
+            value={form.password}
+            onChange={(e) => setForm({ ...form, password: e.target.value })}
+            className="input w-full"
+            placeholder="optional"
+          />
+        </div>
+      </div>
+    </>
+  );
+
+  const renderNFSFields = () => (
+    <>
+      <div>
+        <label className="block text-sm font-medium form-label mb-1">Mount Path</label>
+        <input
+          type="text"
+          value={form.path}
+          onChange={(e) => setForm({ ...form, path: e.target.value })}
+          className="input w-full"
+          placeholder="/mnt/media"
+          required
+        />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-sm font-medium form-label mb-1">Host</label>
+          <input
+            type="text"
+            value={form.host}
+            onChange={(e) => setForm({ ...form, host: e.target.value })}
+            className="input w-full"
+            placeholder="192.168.1.100"
+            required
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium form-label mb-1">Export Path</label>
+          <input
+            type="text"
+            value={form.export}
+            onChange={(e) => setForm({ ...form, export: e.target.value })}
+            className="input w-full"
+            placeholder="/mnt/tank/media"
+            required
+          />
+        </div>
+      </div>
+    </>
+  );
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative card rounded-lg shadow-xl w-full max-w-xl max-h-[90vh] overflow-y-auto p-6 m-4">
-        <h2 className="text-xl font-semibold mb-4">
+    <Portal>
+      <div className="fixed inset-0 z-[100] flex items-center justify-center">
+        <div className="absolute inset-0 bg-black/60" onClick={onClose} />
+        <div className="relative card rounded-lg shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto p-5 m-4">
+        <h2 className="text-lg font-semibold mb-4">
           {source ? 'Edit Storage Source' : 'Add Storage Source'}
         </h2>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           {error && (
-            <div className="bg-red-900/50 border border-red-700 rounded p-3 text-red-200 text-sm">
+            <div className="bg-red-900/50 border border-red-700 rounded p-2 text-red-200 text-sm">
               {error}
             </div>
           )}
 
-          <div>
-            <label className="block text-sm font-medium form-label mb-1">Type</label>
-            <select
-              value={form.type}
-              onChange={(e) => setForm({ ...form, type: e.target.value as StorageSourceType })}
-              className="input w-full"
-              disabled={!!source}
-            >
+          {/* Type selector - only for new sources */}
+          {!source && (
+            <div className="grid grid-cols-4 gap-2">
               {storageTypeOptions.map((option) => (
-                <option key={option.value} value={option.value}>
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => setForm({ ...form, type: option.value })}
+                  className={`p-2 rounded border text-center text-sm transition-colors ${
+                    form.type === option.value
+                      ? 'border-primary bg-primary/20 text-white'
+                      : 'border-gray-700 hover:border-gray-600 text-gray-400'
+                  }`}
+                >
                   {option.label}
-                </option>
+                </button>
               ))}
-            </select>
-            <p className="text-xs text-gray-500 mt-1">
-              {storageTypeOptions.find((o) => o.value === form.type)?.description}
-            </p>
-          </div>
+            </div>
+          )}
 
+          {/* Name */}
           <div>
             <label className="block text-sm font-medium form-label mb-1">Name</label>
             <input
@@ -1593,86 +1468,51 @@ function StorageSourceModal({ source, onClose, onSaved }: StorageSourceModalProp
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
               className="input w-full"
-              placeholder="Media Storage"
+              placeholder={`My ${form.type === 'truenas' ? 'TrueNAS' : form.type.toUpperCase()} Storage`}
               required
             />
           </div>
 
-          {renderTypeSpecificFields()}
+          {/* Type-specific fields */}
+          {form.type === 'truenas' && renderTrueNASFields()}
+          {form.type === 'local' && renderLocalFields()}
+          {form.type === 'smb' && renderSMBFields()}
+          {form.type === 'nfs' && renderNFSFields()}
 
-          <div className="border-t border-gray-700 pt-4 mt-4">
-            <h3 className="font-medium mb-3">Threshold Settings</h3>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium form-label mb-1">
-                  Warning Threshold: {form.thresholdPct}%
-                </label>
-                <input
-                  type="range"
-                  min={50}
-                  max={99}
-                  value={form.thresholdPct}
-                  onChange={(e) => setForm({ ...form, thresholdPct: parseInt(e.target.value) })}
-                  className="w-full"
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  Show warnings when disk usage exceeds this percentage.
-                </p>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="storageAutoCleanup"
-                  checked={form.autoCleanup}
-                  onChange={(e) => setForm({ ...form, autoCleanup: e.target.checked })}
-                  className="rounded bg-gray-700 border-gray-600"
-                />
-                <label htmlFor="storageAutoCleanup" className="text-sm form-label">
-                  Trigger automatic cleanup when threshold is exceeded
-                </label>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="storageIsEnabled"
-                  checked={form.isEnabled}
-                  onChange={(e) => setForm({ ...form, isEnabled: e.target.checked })}
-                  className="rounded bg-gray-700 border-gray-600"
-                />
-                <label htmlFor="storageIsEnabled" className="text-sm form-label">
-                  Enabled
-                </label>
-              </div>
+          {/* Settings row */}
+          <div className="pt-3 border-t border-gray-700">
+            <div className="flex items-center justify-between text-sm mb-1">
+              <span className="text-gray-400 flex items-center gap-1">
+                Warning Threshold
+                <span className="text-gray-600 cursor-help" title="Show warnings when disk usage exceeds this percentage">ⓘ</span>
+              </span>
+              <span className="font-medium">{form.thresholdPct}%</span>
             </div>
+            <input
+              type="range"
+              min={50}
+              max={99}
+              value={form.thresholdPct}
+              onChange={(e) => setForm({ ...form, thresholdPct: parseInt(e.target.value) })}
+              className="w-full h-1"
+            />
           </div>
 
+          {/* Test result */}
           {testResult && (
-            <div
-              className={`p-3 rounded text-sm ${
-                testResult.connected
-                  ? 'bg-green-900/50 text-green-300 border border-green-700'
-                  : 'bg-red-900/50 text-red-300 border border-red-700'
-              }`}
-            >
-              {testResult.connected ? '✓ ' : '✗ '}
-              {testResult.message}
+            <div className={`p-2 rounded text-sm ${testResult.connected ? 'bg-green-900/50 text-green-300' : 'bg-red-900/50 text-red-300'}`}>
+              {testResult.connected ? '\u2713 ' : '\u2717 '}{testResult.message}
             </div>
           )}
 
-          <div className="flex justify-end gap-3 pt-4">
+          {/* Actions */}
+          <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={onClose} className="btn btn-secondary">
               Cancel
             </button>
             {hasTested ? (
               <>
-                <button
-                  type="button"
-                  onClick={handleTest}
-                  disabled={testing}
-                  className="btn btn-secondary"
-                >
+                <button type="button" onClick={handleTest} disabled={testing} className="btn btn-secondary">
                   {testing ? 'Testing...' : 'Re-test'}
                 </button>
                 <button type="submit" disabled={saving} className="btn btn-primary">
@@ -1690,15 +1530,10 @@ function StorageSourceModal({ source, onClose, onSaved }: StorageSourceModalProp
               </button>
             )}
           </div>
-          
-          {!hasTested && !testResult && (
-            <p className="text-xs text-gray-500 text-center">
-              Test your connection to enable saving{form.type === 'truenas' ? ' and populate pool/dataset options' : ''}
-            </p>
-          )}
         </form>
+        </div>
       </div>
-    </div>
+    </Portal>
   );
 }
 
@@ -3224,7 +3059,6 @@ function StatisticsServiceModal({ service, onClose, onSaved, onDelete }: Statist
     type: service?.type || 'jellystat' as StatisticsServiceType,
     url: service?.url || '',
     apiKey: '',
-    enabled: service?.isEnabled ?? true,
   });
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -3282,7 +3116,6 @@ function StatisticsServiceModal({ service, onClose, onSaved, onDelete }: Statist
         name: form.name,
         type: form.type,
         url: form.url,
-        isEnabled: form.enabled,
       };
       if (form.apiKey) {
         payload.apiKey = form.apiKey;
@@ -3374,14 +3207,6 @@ function StatisticsServiceModal({ service, onClose, onSaved, onDelete }: Statist
           )}
         </div>
 
-        <div className="flex items-center gap-2">
-          <ToggleSwitch
-            checked={form.enabled}
-            onChange={(checked) => setForm({ ...form, enabled: checked })}
-          />
-          <label className="text-sm form-label">Enabled</label>
-        </div>
-
         {testResult && (
           <div
             className={`p-3 rounded text-sm ${
@@ -3395,50 +3220,42 @@ function StatisticsServiceModal({ service, onClose, onSaved, onDelete }: Statist
           </div>
         )}
 
-        {!service && !connectionVerified && (
-          <p className="text-xs text-gray-500">
-            Test the connection before saving to verify your settings.
-          </p>
-        )}
-
-        <div className="flex justify-between gap-3 pt-4 border-t border-gray-700">
-          <div className="flex gap-2">
+        <div className="flex justify-end gap-2 pt-4 border-t border-gray-700">
+          {service && onDelete && (
+            <button
+              type="button"
+              onClick={() => {
+                if (confirm('Are you sure you want to delete this service?')) {
+                  onDelete(service.id);
+                  onClose();
+                }
+              }}
+              className="btn btn-danger mr-auto"
+            >
+              Delete
+            </button>
+          )}
+          <button type="button" onClick={onClose} className="btn btn-secondary">
+            Cancel
+          </button>
+          {!service && !connectionVerified ? (
             <button
               type="button"
               onClick={handleTest}
               disabled={testing || !form.url || !form.apiKey}
-              className="btn btn-secondary"
+              className="btn btn-primary"
             >
               {testing ? 'Testing...' : 'Test Connection'}
             </button>
-            {service && onDelete && (
-              <button
-                type="button"
-                onClick={() => {
-                  if (confirm('Are you sure you want to delete this service?')) {
-                    onDelete(service.id);
-                    onClose();
-                  }
-                }}
-                className="btn btn-danger"
-              >
-                Delete
-              </button>
-            )}
-          </div>
-          <div className="flex gap-2">
-            <button type="button" onClick={onClose} className="btn btn-secondary">
-              Cancel
-            </button>
+          ) : (
             <button 
               type="submit" 
-              disabled={saving || !canSave} 
+              disabled={saving} 
               className="btn btn-primary"
-              title={!canSave ? 'Test connection first' : ''}
             >
               {saving ? 'Saving...' : 'Save'}
             </button>
-          </div>
+          )}
         </div>
       </form>
     </Modal>
@@ -5527,13 +5344,42 @@ function MediaServerModal({ server, onClose, onSaved, onDelete }: MediaServerMod
     type: server?.type || 'jellyfin',
     url: server?.url || '',
     apiKey: server?.apiKey || '',
-    isDefault: server?.isDefault || false,
   });
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<ConnectionTestResult | null>(null);
-  const [connectionVerified, setConnectionVerified] = useState(!!server); // Existing servers are assumed verified
+  const [connectionVerified, setConnectionVerified] = useState(!!server);
+  
+  // Path mappings state
+  const [showPathMappings, setShowPathMappings] = useState(false);
+  const [pathMappings, setPathMappings] = useState<Array<{ localPath: string; remotePath: string; customPath?: boolean }>>([]);
+  const [pathMappingsLoading, setPathMappingsLoading] = useState(false);
+  const [browsingIndex, setBrowsingIndex] = useState<number | null>(null);
+
+  // Load path mappings when editing an existing server
+  useEffect(() => {
+    if (server?.id) {
+      const loadMappings = async () => {
+        setPathMappingsLoading(true);
+        try {
+          const { get } = await import('../api/client');
+          const response = await get<{ success: boolean; data: Array<any> }>(`/path-mappings/media-server/${server.id}`);
+          const normalized = (response.data || []).map((m: any) => ({
+            localPath: m.localPath || '',
+            remotePath: m.mediaServerPath || m.localPath || '',
+            customPath: m.localPath !== (m.mediaServerPath || m.localPath),
+          }));
+          setPathMappings(normalized);
+        } catch (error) {
+          console.error('Failed to load path mappings:', error);
+        } finally {
+          setPathMappingsLoading(false);
+        }
+      };
+      loadMappings();
+    }
+  }, [server?.id]);
 
   // Reset verification when connection details change
   useEffect(() => {
@@ -5581,11 +5427,29 @@ function MediaServerModal({ server, onClose, onSaved, onDelete }: MediaServerMod
     setError(null);
 
     try {
+      let serverId = server?.id;
+      
       if (server) {
         await mediaServers.update(server.id, form);
       } else {
-        await mediaServers.create(form);
+        const response = await mediaServers.create(form);
+        serverId = response.data.id;
       }
+      
+      // Save path mappings
+      if (serverId && pathMappings.length > 0) {
+        const { put } = await import('../api/client');
+        const payload = pathMappings.map(m => ({
+          localPath: m.localPath,
+          mediaServerPath: m.customPath ? m.remotePath : m.localPath,
+        }));
+        await put(`/path-mappings/media-server/${serverId}`, { mappings: payload });
+      } else if (serverId && pathMappings.length === 0 && server) {
+        // Clear mappings if they were all removed
+        const { put } = await import('../api/client');
+        await put(`/path-mappings/media-server/${serverId}`, { mappings: [] });
+      }
+      
       onSaved();
     } catch (err: any) {
       setError(err?.message || 'Failed to save');
@@ -5594,7 +5458,35 @@ function MediaServerModal({ server, onClose, onSaved, onDelete }: MediaServerMod
     }
   };
 
-  const canSave = server ? true : connectionVerified;
+  // Path mapping helpers
+  const addPathMapping = () => {
+    setPathMappings([...pathMappings, { localPath: '', remotePath: '', customPath: false }]);
+    setShowPathMappings(true);
+  };
+
+  const removePathMapping = (index: number) => {
+    setPathMappings(pathMappings.filter((_, i) => i !== index));
+  };
+
+  const updatePathMapping = (index: number, field: 'localPath' | 'remotePath' | 'customPath', value: string | boolean) => {
+    const updated = [...pathMappings];
+    if (field === 'customPath') {
+      updated[index].customPath = value as boolean;
+      if (!value) {
+        updated[index].remotePath = updated[index].localPath;
+      }
+    } else if (field === 'localPath') {
+      updated[index].localPath = value as string;
+      if (!updated[index].customPath) {
+        updated[index].remotePath = value as string;
+      }
+    } else {
+      updated[index].remotePath = value as string;
+    }
+    setPathMappings(updated);
+  };
+
+  const getServiceLabel = () => form.type === 'jellyfin' ? 'Jellyfin' : 'Emby';
 
   return (
     <Modal onClose={onClose} title={server ? 'Edit Media Server' : 'Add Media Server'}>
@@ -5662,17 +5554,116 @@ function MediaServerModal({ server, onClose, onSaved, onDelete }: MediaServerMod
           />
         </div>
 
-        <div className="flex items-center gap-2">
-          <input
-            type="checkbox"
-            id="isDefault"
-            checked={form.isDefault}
-            onChange={(e) => setForm({ ...form, isDefault: e.target.checked })}
-            className="rounded bg-gray-700 border-gray-600"
-          />
-          <label htmlFor="isDefault" className="text-sm form-label">
-            Set as default server
-          </label>
+        {/* Path Mappings Section */}
+        <div className="border-t border-gray-700 pt-4">
+          <button
+            type="button"
+            onClick={() => setShowPathMappings(!showPathMappings)}
+            className="flex items-center justify-between w-full text-left"
+          >
+            <div>
+              <span className="font-medium text-sm">Path Mappings</span>
+              <span className="text-xs text-gray-500 ml-2">
+                {pathMappings.length > 0 ? `(${pathMappings.length} configured)` : '(optional)'}
+              </span>
+            </div>
+            <svg 
+              className={`w-4 h-4 text-gray-400 transition-transform ${showPathMappings ? 'rotate-180' : ''}`}
+              fill="none" stroke="currentColor" viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+          
+          {showPathMappings && (
+            <div className="mt-3 space-y-3">
+              <p className="text-xs text-gray-500">
+                Only needed if Sweeparr and {getServiceLabel()} see files at different paths.
+              </p>
+              
+              {pathMappingsLoading ? (
+                <div className="flex items-center gap-2 text-gray-400 text-sm">
+                  <LoadingSpinner size="sm" /> Loading...
+                </div>
+              ) : (
+                <>
+                  {pathMappings.map((mapping, index) => (
+                    <div key={index} className="bg-tertiary rounded-lg p-3 space-y-2">
+                      <div>
+                        <label className="text-xs text-gray-400 mb-1 block">Sweeparr Path</label>
+                        <div className="flex gap-1">
+                          <input
+                            type="text"
+                            value={mapping.localPath}
+                            onChange={(e) => updatePathMapping(index, 'localPath', e.target.value)}
+                            className="input flex-1 text-sm"
+                            placeholder="/data/media/movies"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setBrowsingIndex(index)}
+                            className="btn btn-secondary text-sm px-2"
+                            title="Browse"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                            </svg>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => removePathMapping(index)}
+                            className="btn btn-danger text-sm px-2"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center justify-between pt-2 border-t border-gray-600">
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => updatePathMapping(index, 'customPath', !mapping.customPath)}
+                            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                              mapping.customPath ? 'bg-orange-600' : 'bg-gray-600'
+                            }`}
+                          >
+                            <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
+                              mapping.customPath ? 'translate-x-[18px]' : 'translate-x-1'
+                            }`} />
+                          </button>
+                          <span className="text-xs text-gray-400">{getServiceLabel()} uses different path</span>
+                        </div>
+                      </div>
+                      
+                      {mapping.customPath && (
+                        <div>
+                          <label className="text-xs text-gray-400 mb-1 block">{getServiceLabel()} Path</label>
+                          <input
+                            type="text"
+                            value={mapping.remotePath}
+                            onChange={(e) => updatePathMapping(index, 'remotePath', e.target.value)}
+                            className="input w-full text-sm"
+                            placeholder="/media/movies"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  
+                  <button
+                    type="button"
+                    onClick={addPathMapping}
+                    className="btn btn-secondary text-sm w-full"
+                  >
+                    + Add Path Mapping
+                  </button>
+                </>
+              )}
+            </div>
+          )}
         </div>
 
         {testResult && (
@@ -5688,69 +5679,76 @@ function MediaServerModal({ server, onClose, onSaved, onDelete }: MediaServerMod
           </div>
         )}
 
-        {!server && !connectionVerified && (
-          <p className="text-xs text-gray-500">
-            Test the connection before saving to verify your settings.
-          </p>
-        )}
-
-        <div className="flex justify-between gap-3 pt-4 border-t border-gray-700">
-          <div className="flex gap-2">
+        <div className="flex justify-end gap-2 pt-4 border-t border-gray-700">
+          {server && onDelete && (
+            <button
+              type="button"
+              onClick={() => {
+                if (confirm('Are you sure you want to delete this server?')) {
+                  onDelete(server.id);
+                  onClose();
+                }
+              }}
+              className="btn btn-danger mr-auto"
+            >
+              Delete
+            </button>
+          )}
+          <button type="button" onClick={onClose} className="btn btn-secondary">
+            Cancel
+          </button>
+          {!server && !connectionVerified ? (
             <button
               type="button"
               onClick={handleTest}
               disabled={testing || !form.url || !form.apiKey}
-              className="btn btn-secondary"
+              className="btn btn-primary"
             >
               {testing ? 'Testing...' : 'Test Connection'}
             </button>
-            {server && onDelete && (
-              <button
-                type="button"
-                onClick={() => {
-                  if (confirm('Are you sure you want to delete this server?')) {
-                    onDelete(server.id);
-                    onClose();
-                  }
-                }}
-                className="btn btn-danger"
-              >
-                Delete
-              </button>
-            )}
-          </div>
-          <div className="flex gap-2">
-            <button type="button" onClick={onClose} className="btn btn-secondary">
-              Cancel
-            </button>
+          ) : (
             <button 
               type="submit" 
-              disabled={saving || !canSave} 
+              disabled={saving} 
               className="btn btn-primary"
-              title={!canSave ? 'Test connection first' : ''}
             >
               {saving ? 'Saving...' : 'Save'}
             </button>
-          </div>
+          )}
         </div>
       </form>
+      
+      {/* File Browser Modal */}
+      <FileBrowser
+        isOpen={browsingIndex !== null}
+        onClose={() => setBrowsingIndex(null)}
+        onSelect={(path) => {
+          if (browsingIndex !== null) {
+            updatePathMapping(browsingIndex, 'localPath', path);
+          }
+        }}
+        initialPath={browsingIndex !== null ? pathMappings[browsingIndex]?.localPath || '/' : '/'}
+        title="Select Sweeparr Path"
+      />
     </Modal>
   );
 }
 
 interface ArrAppModalProps {
   app: ArrApp | null;
+  servers: MediaServer[];
   onClose: () => void;
   onSaved: () => void;
   onDelete?: (id: number) => void;
 }
 
-function ArrAppModal({ app, onClose, onSaved, onDelete }: ArrAppModalProps) {
+function ArrAppModal({ app, servers, onClose, onSaved, onDelete }: ArrAppModalProps) {
   const [form, setForm] = useState({
     name: app?.name || '',
     type: app?.type || 'radarr',
     url: app?.url || '',
     apiKey: app?.apiKey || '',
+    mediaServerId: app?.mediaServerId || null as number | null,
   });
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -5778,7 +5776,6 @@ function ArrAppModal({ app, onClose, onSaved, onDelete }: ArrAppModalProps) {
             customPath: m.localPath !== (m.arrPath || m.localPath),
           }));
           setPathMappings(normalized);
-          if (normalized.length > 0) setShowPathMappings(true);
         } catch (error) {
           console.error('Failed to load path mappings:', error);
         } finally {
@@ -5818,13 +5815,6 @@ function ArrAppModal({ app, onClose, onSaved, onDelete }: ArrAppModalProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    // Require connection test before saving (unless editing existing)
-    if (!app && !connectionTested) {
-      setError('Please test the connection before saving');
-      return;
-    }
-    
     setSaving(true);
     setError(null);
 
@@ -6072,23 +6062,42 @@ function ArrAppModal({ app, onClose, onSaved, onDelete }: ArrAppModalProps) {
           )}
         </div>
 
-        <div className="flex justify-between gap-3 pt-4">
-          <button
-            type="button"
-            onClick={handleTest}
-            disabled={testing || !form.url || !form.apiKey}
-            className="btn btn-secondary"
-          >
-            {testing ? 'Testing...' : 'Test Connection'}
-          </button>
-          <div className="flex gap-3">
-            <button type="button" onClick={onClose} className="btn btn-secondary">
-              Cancel
+        <div className="flex justify-end gap-2 pt-4 border-t border-gray-700">
+          {app && onDelete && (
+            <button
+              type="button"
+              onClick={() => {
+                if (confirm('Are you sure you want to delete this service?')) {
+                  onDelete(app.id);
+                  onClose();
+                }
+              }}
+              className="btn btn-danger mr-auto"
+            >
+              Delete
             </button>
-            <button type="submit" disabled={saving} className="btn btn-primary">
+          )}
+          <button type="button" onClick={onClose} className="btn btn-secondary">
+            Cancel
+          </button>
+          {!app && !connectionTested ? (
+            <button
+              type="button"
+              onClick={handleTest}
+              disabled={testing || !form.url || !form.apiKey}
+              className="btn btn-primary"
+            >
+              {testing ? 'Testing...' : 'Test Connection'}
+            </button>
+          ) : (
+            <button 
+              type="submit" 
+              disabled={saving} 
+              className="btn btn-primary"
+            >
               {saving ? 'Saving...' : 'Save'}
             </button>
-          </div>
+          )}
         </div>
       </form>
       
@@ -6104,6 +6113,500 @@ function ArrAppModal({ app, onClose, onSaved, onDelete }: ArrAppModalProps) {
         initialPath={browsingIndex !== null ? pathMappings[browsingIndex]?.localPath || '/' : '/'}
         title="Select Sweeparr Path"
       />
+    </Modal>
+  );
+}
+
+// ============================================================================
+// ConnectionModal - Unified modal for all service types
+// ============================================================================
+
+type ServiceCategory = 'media-server' | 'arr' | 'statistics';
+type ConnectionServiceType = 'jellyfin' | 'emby' | 'radarr' | 'sonarr' | 'jellystat' | 'tautulli';
+
+interface ConnectionModalProps {
+  service: {
+    id: number;
+    name: string;
+    type: ConnectionServiceType;
+    url: string;
+    apiKey?: string;
+    mediaServerId?: number | null;
+  } | null;
+  serviceType?: ConnectionServiceType;
+  servers?: MediaServer[];
+  onClose: () => void;
+  onSaved: () => void;
+  onDelete?: (id: number) => void;
+}
+
+const getConnectionServiceCategory = (type: ConnectionServiceType): ServiceCategory => {
+  if (type === 'jellyfin' || type === 'emby') return 'media-server';
+  if (type === 'radarr' || type === 'sonarr') return 'arr';
+  return 'statistics';
+};
+
+const connectionSupportsPathMappings = (type: ConnectionServiceType): boolean => {
+  return ['jellyfin', 'emby', 'radarr', 'sonarr'].includes(type);
+};
+
+const getConnectionServiceLabel = (type: ConnectionServiceType): string => {
+  const labels: Record<ConnectionServiceType, string> = {
+    jellyfin: 'Jellyfin',
+    emby: 'Emby',
+    radarr: 'Radarr',
+    sonarr: 'Sonarr',
+    jellystat: 'Jellystat',
+    tautulli: 'Tautulli',
+  };
+  return labels[type];
+};
+
+function ConnectionModal({ service, serviceType, servers = [], onClose, onSaved, onDelete }: ConnectionModalProps) {
+  const effectiveType = service?.type || serviceType || 'radarr';
+  const category = getConnectionServiceCategory(effectiveType);
+  const isEditing = !!service;
+  
+  const [form, setForm] = useState({
+    name: service?.name || '',
+    type: effectiveType,
+    url: service?.url || '',
+    apiKey: '',
+    mediaServerId: service?.mediaServerId || null as number | null,
+  });
+  
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [testResult, setTestResult] = useState<ConnectionTestResult | null>(null);
+  const [connectionTested, setConnectionTested] = useState(isEditing);
+  
+  const [showPathMappings, setShowPathMappings] = useState(false);
+  const [pathMappings, setPathMappings] = useState<Array<{ localPath: string; remotePath: string; customPath?: boolean }>>([]);
+  const [pathMappingsLoading, setPathMappingsLoading] = useState(false);
+  const [browsingIndex, setBrowsingIndex] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (service?.id && connectionSupportsPathMappings(form.type as ConnectionServiceType)) {
+      const loadMappings = async () => {
+        setPathMappingsLoading(true);
+        try {
+          const { get } = await import('../api/client');
+          const endpoint = category === 'arr' 
+            ? `/path-mappings/arr/${service.id}`
+            : `/path-mappings/media-server/${service.id}`;
+          const response = await get<{ success: boolean; data: Array<any> }>(endpoint);
+          const remotePathField = category === 'arr' ? 'arrPath' : 'mediaServerPath';
+          const normalized = (response.data || []).map((m: any) => ({
+            localPath: m.localPath || '',
+            remotePath: m[remotePathField] || m.localPath || '',
+            customPath: m.localPath !== (m[remotePathField] || m.localPath),
+          }));
+          setPathMappings(normalized);
+        } catch (error) {
+          console.error('Failed to load path mappings:', error);
+        } finally {
+          setPathMappingsLoading(false);
+        }
+      };
+      loadMappings();
+    }
+  }, [service?.id, category, form.type]);
+
+  const handleTest = async () => {
+    if (!form.url || !form.apiKey) {
+      setError('URL and API Key are required to test');
+      return;
+    }
+    
+    setTesting(true);
+    setError(null);
+    setTestResult(null);
+    
+    try {
+      let result;
+      if (category === 'media-server') {
+        result = await mediaServers.testConnection({ type: form.type, url: form.url, apiKey: form.apiKey });
+      } else if (category === 'arr') {
+        result = await arrApps.testConnection({ type: form.type, url: form.url, apiKey: form.apiKey });
+      } else {
+        result = await statisticsServices.testConnection({ type: form.type, url: form.url, apiKey: form.apiKey });
+      }
+      setTestResult(result.data);
+      if (result.data.connected) {
+        setConnectionTested(true);
+      }
+    } catch (err: any) {
+      setTestResult({ connected: false, message: err?.message || 'Test failed' });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    setError(null);
+
+    try {
+      let savedId = service?.id;
+      
+      const payload: any = {
+        name: form.name,
+        type: form.type,
+        url: form.url,
+      };
+      if (form.apiKey) payload.apiKey = form.apiKey;
+      if (category === 'arr') payload.mediaServerId = form.mediaServerId;
+      
+      if (service) {
+        if (category === 'media-server') {
+          await mediaServers.update(service.id, payload);
+        } else if (category === 'arr') {
+          await arrApps.update(service.id, payload);
+        } else {
+          await statisticsServices.update(service.id, payload);
+        }
+      } else {
+        let response;
+        if (category === 'media-server') {
+          response = await mediaServers.create(payload);
+        } else if (category === 'arr') {
+          response = await arrApps.create(payload);
+        } else {
+          response = await statisticsServices.create(payload);
+        }
+        savedId = response.data.id;
+      }
+      
+      if (savedId && connectionSupportsPathMappings(form.type as ConnectionServiceType)) {
+        const { put } = await import('../api/client');
+        const endpoint = category === 'arr' 
+          ? `/path-mappings/arr/${savedId}`
+          : `/path-mappings/media-server/${savedId}`;
+        const remotePathField = category === 'arr' ? 'arrPath' : 'mediaServerPath';
+        
+        if (pathMappings.length > 0) {
+          const mappingPayload = pathMappings.map(m => ({
+            localPath: m.localPath,
+            [remotePathField]: m.customPath ? m.remotePath : m.localPath,
+          }));
+          await put(endpoint, { mappings: mappingPayload });
+        } else if (service) {
+          await put(endpoint, { mappings: [] });
+        }
+      }
+      
+      onSaved();
+    } catch (err: any) {
+      setError(err?.message || 'Failed to save');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const addPathMapping = () => {
+    setPathMappings([...pathMappings, { localPath: '', remotePath: '', customPath: false }]);
+    setShowPathMappings(true);
+  };
+
+  const removePathMapping = (index: number) => {
+    setPathMappings(pathMappings.filter((_, i) => i !== index));
+  };
+
+  const updatePathMapping = (index: number, field: 'localPath' | 'remotePath' | 'customPath', value: string | boolean) => {
+    const updated = [...pathMappings];
+    if (field === 'customPath') {
+      updated[index].customPath = value as boolean;
+      if (!value) updated[index].remotePath = updated[index].localPath;
+    } else if (field === 'localPath') {
+      updated[index].localPath = value as string;
+      if (!updated[index].customPath) updated[index].remotePath = value as string;
+    } else {
+      updated[index].remotePath = value as string;
+    }
+    setPathMappings(updated);
+  };
+
+  const modalTitle = isEditing 
+    ? `Edit ${getConnectionServiceLabel(form.type as ConnectionServiceType)}`
+    : `Add ${getConnectionServiceLabel(form.type as ConnectionServiceType)}`;
+
+  return (
+    <Modal onClose={onClose} title={modalTitle}>
+      <form onSubmit={handleSubmit} className="space-y-4">
+        {error && (
+          <div className="bg-red-900/50 border border-red-700 rounded p-3 text-red-200 text-sm">
+            {error}
+          </div>
+        )}
+
+        {!isEditing && (category === 'media-server' || category === 'arr') && (
+          <div>
+            <label className="block text-sm font-medium form-label mb-1">Type</label>
+            <select
+              value={form.type}
+              onChange={(e) => {
+                setForm({ ...form, type: e.target.value as ConnectionServiceType });
+                setConnectionTested(false);
+              }}
+              className="input w-full"
+            >
+              {category === 'media-server' ? (
+                <>
+                  <option value="jellyfin">Jellyfin</option>
+                  <option value="emby">Emby</option>
+                </>
+              ) : (
+                <>
+                  <option value="radarr">Radarr</option>
+                  <option value="sonarr">Sonarr</option>
+                </>
+              )}
+            </select>
+          </div>
+        )}
+
+        <div>
+          <label className="block text-sm font-medium form-label mb-1">Name</label>
+          <input
+            type="text"
+            value={form.name}
+            onChange={(e) => setForm({ ...form, name: e.target.value })}
+            className="input w-full"
+            placeholder={`My ${getConnectionServiceLabel(form.type as ConnectionServiceType)} Server`}
+            required
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium form-label mb-1">URL</label>
+          <input
+            type="url"
+            value={form.url}
+            onChange={(e) => {
+              setForm({ ...form, url: e.target.value });
+              setConnectionTested(false);
+            }}
+            className="input w-full"
+            placeholder="http://localhost:8096"
+            required
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium form-label mb-1">
+            API Key {isEditing && '(leave blank to keep current)'}
+          </label>
+          <input
+            type="password"
+            value={form.apiKey}
+            onChange={(e) => {
+              setForm({ ...form, apiKey: e.target.value });
+              setConnectionTested(false);
+            }}
+            className="input w-full"
+            placeholder={isEditing ? '••••••••' : 'Enter API key'}
+            required={!isEditing}
+          />
+          {category === 'statistics' && form.type === 'jellystat' && (
+            <p className="text-xs text-gray-500 mt-1">
+              Find your API key in Jellystat Settings → Security → API Keys
+            </p>
+          )}
+        </div>
+
+        {category === 'arr' && servers.length > 0 && (
+          <div>
+            <label className="block text-sm font-medium form-label mb-1">Media Server</label>
+            <select
+              value={form.mediaServerId || ''}
+              onChange={(e) => setForm({ ...form, mediaServerId: e.target.value ? parseInt(e.target.value) : null })}
+              className="input w-full"
+            >
+              <option value="">None (no watch history)</option>
+              {servers.map(server => (
+                <option key={server.id} value={server.id}>
+                  {server.name} ({server.type})
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-gray-500 mt-1">
+              Link to a media server to use watch history in cleanup rules.
+            </p>
+          </div>
+        )}
+
+        {connectionSupportsPathMappings(form.type as ConnectionServiceType) && (
+          <div className="border-t border-gray-700 pt-4">
+            <button
+              type="button"
+              onClick={() => setShowPathMappings(!showPathMappings)}
+              className="flex items-center justify-between w-full text-left"
+            >
+              <div>
+                <span className="font-medium text-sm">Path Mappings</span>
+                <span className="text-xs text-gray-500 ml-2">
+                  {pathMappings.length > 0 ? `(${pathMappings.length} configured)` : '(optional)'}
+                </span>
+              </div>
+              <svg 
+                className={`w-4 h-4 text-gray-400 transition-transform ${showPathMappings ? 'rotate-180' : ''}`}
+                fill="none" stroke="currentColor" viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+            
+            {showPathMappings && (
+              <div className="mt-3 space-y-3">
+                <p className="text-xs text-gray-500">
+                  Only needed if Sweeparr and {getConnectionServiceLabel(form.type as ConnectionServiceType)} see files at different paths.
+                </p>
+                
+                {pathMappingsLoading ? (
+                  <div className="flex items-center gap-2 text-gray-400 text-sm">
+                    <LoadingSpinner size="sm" /> Loading...
+                  </div>
+                ) : (
+                  <>
+                    {pathMappings.map((mapping, index) => (
+                      <div key={index} className="bg-tertiary rounded-lg p-3 space-y-2">
+                        <div>
+                          <label className="text-xs text-gray-400 mb-1 block">Sweeparr Path</label>
+                          <div className="flex gap-1">
+                            <input
+                              type="text"
+                              value={mapping.localPath}
+                              onChange={(e) => updatePathMapping(index, 'localPath', e.target.value)}
+                              className="input flex-1 text-sm"
+                              placeholder="/data/media/movies"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setBrowsingIndex(index)}
+                              className="btn btn-secondary text-sm px-2"
+                              title="Browse"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                              </svg>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => removePathMapping(index)}
+                              className="btn btn-danger text-sm px-2"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                              </svg>
+                            </button>
+                          </div>
+                        </div>
+                        
+                        <div className="flex items-center gap-2 pt-2 border-t border-gray-600">
+                          <button
+                            type="button"
+                            onClick={() => updatePathMapping(index, 'customPath', !mapping.customPath)}
+                            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                              mapping.customPath ? 'bg-orange-600' : 'bg-gray-600'
+                            }`}
+                          >
+                            <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
+                              mapping.customPath ? 'translate-x-[18px]' : 'translate-x-1'
+                            }`} />
+                          </button>
+                          <span className="text-xs text-gray-400">{getConnectionServiceLabel(form.type as ConnectionServiceType)} uses different path</span>
+                        </div>
+                        
+                        {mapping.customPath && (
+                          <div>
+                            <label className="text-xs text-gray-400 mb-1 block">{getConnectionServiceLabel(form.type as ConnectionServiceType)} Path</label>
+                            <input
+                              type="text"
+                              value={mapping.remotePath}
+                              onChange={(e) => updatePathMapping(index, 'remotePath', e.target.value)}
+                              className="input w-full text-sm"
+                              placeholder="/media/movies"
+                            />
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                    
+                    <button
+                      type="button"
+                      onClick={addPathMapping}
+                      className="btn btn-secondary text-sm w-full"
+                    >
+                      + Add Path Mapping
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {testResult && (
+          <div className={`p-3 rounded text-sm ${
+            testResult.connected
+              ? 'bg-green-900/50 text-green-300 border border-green-700'
+              : 'bg-red-900/50 text-red-300 border border-red-700'
+          }`}>
+            {testResult.connected ? '✓ ' : '✗ '}
+            {testResult.message}
+          </div>
+        )}
+
+        <div className="flex justify-end gap-2 pt-4 border-t border-gray-700">
+          {isEditing && onDelete && (
+            <button
+              type="button"
+              onClick={() => {
+                if (confirm(`Are you sure you want to delete this ${getConnectionServiceLabel(form.type as ConnectionServiceType)}?`)) {
+                  onDelete(service!.id);
+                  onClose();
+                }
+              }}
+              className="btn btn-danger mr-auto"
+            >
+              Delete
+            </button>
+          )}
+          <button type="button" onClick={onClose} className="btn btn-secondary">
+            Cancel
+          </button>
+          {!isEditing && !connectionTested ? (
+            <button
+              type="button"
+              onClick={handleTest}
+              disabled={testing || !form.url || !form.apiKey}
+              className="btn btn-primary"
+            >
+              {testing ? 'Testing...' : 'Test Connection'}
+            </button>
+          ) : (
+            <button type="submit" disabled={saving} className="btn btn-primary">
+              {saving ? 'Saving...' : 'Save'}
+            </button>
+          )}
+        </div>
+      </form>
+      
+      {connectionSupportsPathMappings(form.type as ConnectionServiceType) && (
+        <FileBrowser
+          isOpen={browsingIndex !== null}
+          onClose={() => setBrowsingIndex(null)}
+          onSelect={(path) => {
+            if (browsingIndex !== null) {
+              updatePathMapping(browsingIndex, 'localPath', path);
+            }
+          }}
+          initialPath={browsingIndex !== null ? pathMappings[browsingIndex]?.localPath || '/' : '/'}
+          title="Select Sweeparr Path"
+        />
+      )}
     </Modal>
   );
 }

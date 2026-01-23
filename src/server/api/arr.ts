@@ -10,7 +10,9 @@ const router = Router();
 // Get all *arr apps
 router.get('/', async (req, res, next) => {
   try {
-    const apps = await prisma.arrApp.findMany();
+    const apps = await prisma.arrApp.findMany({
+      include: { mediaServer: true },
+    });
     res.json({ success: true, data: apps });
   } catch (error) {
     next(error);
@@ -22,6 +24,7 @@ router.get('/:id', async (req, res, next) => {
   try {
     const app = await prisma.arrApp.findUnique({
       where: { id: parseInt(req.params.id) },
+      include: { mediaServer: true },
     });
     
     if (!app) {
@@ -37,7 +40,7 @@ router.get('/:id', async (req, res, next) => {
 // Create *arr app
 router.post('/', async (req, res, next) => {
   try {
-    const { name, type, url, apiKey } = req.body;
+    const { name, type, url, apiKey, mediaServerId } = req.body;
     
     // Validate required fields
     if (!name || !type || !url || !apiKey) {
@@ -56,7 +59,13 @@ router.post('/', async (req, res, next) => {
     }
     
     const app = await prisma.arrApp.create({
-      data: { name, type, url, apiKey },
+      data: { 
+        name, 
+        type, 
+        url, 
+        apiKey,
+        mediaServerId: mediaServerId || null,
+      },
     });
     
     logger.info(`Created *arr app: ${name} (${type})`, 'Arr Services');
@@ -69,11 +78,18 @@ router.post('/', async (req, res, next) => {
 // Update *arr app
 router.put('/:id', async (req, res, next) => {
   try {
-    const { name, type, url, apiKey, isEnabled } = req.body;
+    const { name, type, url, apiKey, isEnabled, mediaServerId } = req.body;
     
     const app = await prisma.arrApp.update({
       where: { id: parseInt(req.params.id) },
-      data: { name, type, url, apiKey, isEnabled },
+      data: { 
+        name, 
+        type, 
+        url, 
+        apiKey, 
+        isEnabled,
+        mediaServerId: mediaServerId !== undefined ? (mediaServerId || null) : undefined,
+      },
     });
     
     logger.info(`Updated *arr app: ${app.name}`, 'Arr Services');
