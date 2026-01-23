@@ -381,6 +381,45 @@ export const leavingSoon = {
     post<ApiResponse<LibraryRefreshResult>>(`/leaving-soon/refresh/${mediaServerId}`),
 };
 
+// Media Path Types
+export interface MediaPath {
+  id: number;
+  path: string;
+  label: string | null;
+  mediaType: string | null;
+  isEnabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MediaPathTestResult {
+  exists: boolean;
+  isDirectory: boolean;
+  isReadable: boolean;
+  isWritable: boolean;
+  message: string;
+}
+
+export interface BrowseResult {
+  currentPath: string;
+  parentPath: string | null;
+  directories: Array<{ name: string; path: string }>;
+}
+
+// Media Paths API
+export const mediaPaths = {
+  list: () => get<ApiResponse<MediaPath[]>>('/media-paths'),
+  get: (id: number) => get<ApiResponse<MediaPath>>(`/media-paths/${id}`),
+  create: (data: { path: string; label?: string; mediaType?: string }) => 
+    post<ApiResponse<MediaPath>>('/media-paths', data),
+  update: (id: number, data: Partial<MediaPath>) => 
+    put<ApiResponse<MediaPath>>(`/media-paths/${id}`, data),
+  delete: (id: number) => del<ApiResponse<void>>(`/media-paths/${id}`),
+  test: (id: number) => post<ApiResponse<MediaPathTestResult>>(`/media-paths/${id}/test`),
+  testPath: (path: string) => post<ApiResponse<MediaPathTestResult>>('/media-paths/test', { path }),
+  browse: (currentPath?: string) => post<ApiResponse<BrowseResult>>('/media-paths/browse', { currentPath }),
+};
+
 // Export all as default
 export default {
   health,
@@ -395,4 +434,5 @@ export default {
   system,
   presets,
   leavingSoon,
+  mediaPaths,
 };

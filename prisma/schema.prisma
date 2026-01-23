@@ -22,6 +22,18 @@ model Settings {
   updatedAt DateTime @updatedAt
 }
 
+// Global media paths that Sweeparr can access
+// These are the canonical paths where media files are stored
+model MediaPath {
+  id          Int      @id @default(autoincrement())
+  path        String   @unique  // The path as seen by Sweeparr (e.g., /mnt/media-library/movies)
+  label       String?           // Optional friendly name (e.g., "Movies", "TV Shows")
+  mediaType   String?           // Optional: movie, series, or null for mixed
+  isEnabled   Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
 // ============================================
 // Notification Services
 // ============================================

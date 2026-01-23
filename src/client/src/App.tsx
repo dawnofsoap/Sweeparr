@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Routes, Route } from 'react-router-dom';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
 import Rules from './pages/Rules';
@@ -64,13 +64,15 @@ function App() {
           <Route path="rules" element={<Rules />} />
           <Route path="leaving-soon" element={<LeavingSoon />} />
           {/* Settings routes - consolidated under /settings */}
-          <Route path="settings" element={<Settings />} />
+          <Route path="settings" element={<Navigate to="/settings/general" replace />} />
+          <Route path="settings/general" element={<Settings section="general" />} />
+          <Route path="settings/connections" element={<Settings section="connections" />} />
           <Route path="settings/storage" element={<Settings section="storage" />} />
-          <Route path="settings/path-mappings" element={<Settings section="path-mappings" />} />
           <Route path="settings/cleanup" element={<Settings section="cleanup" />} />
           <Route path="settings/notifications" element={<Settings section="notifications" />} />
-          <Route path="settings/general" element={<Settings section="general" />} />
           <Route path="settings/ui" element={<Settings section="ui" />} />
+          {/* Legacy route redirect */}
+          <Route path="settings/path-mappings" element={<Navigate to="/settings/connections" replace />} />
           <Route path="system" element={<System />} />
         </Route>
       </Routes>

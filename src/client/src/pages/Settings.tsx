@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { mediaServers, arrApps, settings, notifications, statisticsServices, storageSources } from '../api';
 import type { MediaServer, ArrApp, ConnectionTestResult, NotificationService, NotificationServiceType, StatisticsService, StatisticsServiceType, StorageSource, StorageSourceType, StorageSummary, TrueNASPool, TrueNASDataset } from '../api/types';
 import { ServiceLogo } from '../components/ServiceLogos';
@@ -6,12 +6,13 @@ import { useUI } from '../contexts/UIContext';
 import { useToast } from '../contexts/ToastContext';
 import { LoadingSpinner } from '../components/LoadingSpinner';
 import { useConfirm } from '../components/ConfirmModal';
+import { FileBrowser } from '../components/FileBrowser';
 
 interface SettingsProps {
   section?: string;
 }
 
-function Settings({ section = 'connections' }: SettingsProps) {
+function Settings({ section = 'general' }: SettingsProps) {
   const activeSection = section;
   const [servers, setServers] = useState<MediaServer[]>([]);
   const [apps, setApps] = useState<ArrApp[]>([]);
@@ -141,6 +142,7 @@ function Settings({ section = 'connections' }: SettingsProps) {
             setEditingServer(null);
           }}
           onSaved={handleServerSaved}
+          onDelete={handleDeleteServer}
         />
       )}
 
@@ -152,6 +154,7 @@ function Settings({ section = 'connections' }: SettingsProps) {
             setEditingApp(null);
           }}
           onSaved={handleAppSaved}
+          onDelete={handleDeleteApp}
         />
       )}
     </div>
@@ -192,6 +195,20 @@ function ConnectionsSection({
   const [statsLoading, setStatsLoading] = useState(true);
   const [showStatsModal, setShowStatsModal] = useState(false);
   const [editingStatsService, setEditingStatsService] = useState<StatisticsService | null>(null);
+  const [showAddMenu, setShowAddMenu] = useState(false);
+  const [pathMappingCounts, setPathMappingCounts] = useState<Record<string, number>>({});
+  const addMenuRef = useRef<HTMLDivElement>(null);
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (addMenuRef.current && !addMenuRef.current.contains(event.target as Node)) {
+        setShowAddMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // Fetch statistics services
   useEffect(() => {
@@ -209,6 +226,44 @@ function ConnectionsSection({
     fetchStats();
   }, []);
 
+  // Fetch path mapping counts for all services
+  useEffect(() => {
+    const fetchPathMappingCounts = async () => {
+      try {
+        const { get } = await import('../api/client');
+        const counts: Record<string, number> = {};
+        
+        // Fetch for arr apps
+        for (const app of apps) {
+          try {
+            const response = await get<{ success: boolean; data: Array<any> }>(`/path-mappings/arr/${app.id}`);
+            counts[`arr-${app.id}`] = response.data?.length || 0;
+          } catch {
+            counts[`arr-${app.id}`] = 0;
+          }
+        }
+        
+        // Fetch for media servers
+        for (const server of servers) {
+          try {
+            const response = await get<{ success: boolean; data: Array<any> }>(`/path-mappings/media-server/${server.id}`);
+            counts[`server-${server.id}`] = response.data?.length || 0;
+          } catch {
+            counts[`server-${server.id}`] = 0;
+          }
+        }
+        
+        setPathMappingCounts(counts);
+      } catch (error) {
+        console.error('Failed to fetch path mapping counts:', error);
+      }
+    };
+    
+    if (apps.length > 0 || servers.length > 0) {
+      fetchPathMappingCounts();
+    }
+  }, [apps, servers]);
+
   const handleDeleteStatsService = async (id: number) => {
     if (!confirm('Are you sure you want to delete this statistics service?')) return;
     try {
@@ -217,16 +272,6 @@ function ConnectionsSection({
       setStatServices(statServices.filter(s => s.id !== id));
     } catch (error) {
       console.error('Failed to delete statistics service:', error);
-    }
-  };
-
-  const handleTestStatsService = async (id: number) => {
-    try {
-      const { statisticsServices: statsApi } = await import('../api');
-      const result = await statsApi.test(id);
-      return { data: result.data };
-    } catch (error: any) {
-      return { data: { connected: false, message: error?.message || 'Test failed' } };
     }
   };
 
@@ -242,126 +287,171 @@ function ConnectionsSection({
     }
   };
 
+  // Combine all services into a unified list
+  const allServices = [
+    ...servers.map(s => ({ ...s, serviceCategory: 'server' as const, serviceId: s.id })),
+    ...apps.map(a => ({ ...a, serviceCategory: 'arr' as const, serviceId: a.id })),
+    ...statServices.map(s => ({ ...s, serviceCategory: 'stats' as const, serviceId: s.id })),
+  ];
+
+  const handleAddClick = (type: string) => {
+    setShowAddMenu(false);
+    switch (type) {
+      case 'jellyfin':
+      case 'emby':
+        onAddServer();
+        break;
+      case 'radarr':
+      case 'sonarr':
+        onAddApp();
+        break;
+      case 'jellystat':
+      case 'tautulli':
+        setEditingStatsService(null);
+        setShowStatsModal(true);
+        break;
+    }
+  };
+
+  const isEmpty = allServices.length === 0 && !statsLoading;
+
   return (
-    <div className="space-y-8">
-      <div>
-        <h2 className="text-xl font-semibold">Connections</h2>
-        <p className="text-sm text-gray-400 mt-1">
-          Manage connections to your media servers, Arr applications, and statistics services.
-        </p>
-      </div>
-
-      {/* Media Servers Section */}
-      <div className="card">
-        <div className="p-4 border-b border-gray-700 flex items-center justify-between">
-          <div>
-            <h3 className="font-medium">Media Servers</h3>
-            <p className="text-sm text-gray-400">Jellyfin or Emby servers for tracking watch history</p>
-          </div>
-          <button onClick={onAddServer} className="btn btn-primary text-sm">
-            + Add Server
-          </button>
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-semibold">Connections</h2>
+          <p className="text-sm text-gray-400 mt-1">
+            Manage your media servers, Arr apps, and statistics services.
+          </p>
         </div>
-        <div className="p-4">
-          {servers.length === 0 ? (
-            <p className="text-gray-400 text-sm">No media servers configured.</p>
-          ) : (
-            <div className="space-y-3">
-              {servers.map((server) => (
-                <ConnectionCard
-                  key={server.id}
-                  name={server.name}
-                  type={server.type}
-                  url={server.url}
-                  enabled={server.isEnabled}
-                  onEdit={() => onEditServer(server)}
-                  onDelete={() => onDeleteServer(server.id)}
-                  onTest={() => onTestServer(server.id)}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Arr Services Section */}
-      <div className="card">
-        <div className="p-4 border-b border-gray-700 flex items-center justify-between">
-          <div>
-            <h3 className="font-medium">Arr Services</h3>
-            <p className="text-sm text-gray-400">Radarr and Sonarr for media management</p>
-          </div>
-          <button onClick={onAddApp} className="btn btn-primary text-sm">
-            + Add Service
-          </button>
-        </div>
-        <div className="p-4">
-          {apps.length === 0 ? (
-            <p className="text-gray-400 text-sm">No Arr services configured.</p>
-          ) : (
-            <div className="space-y-3">
-              {apps.map((app) => (
-                <ConnectionCard
-                  key={app.id}
-                  name={app.name}
-                  type={app.type}
-                  url={app.url}
-                  enabled={app.isEnabled}
-                  onEdit={() => onEditApp(app)}
-                  onDelete={() => onDeleteApp(app.id)}
-                  onTest={() => onTestApp(app.id)}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Statistics Services Section */}
-      <div className="card">
-        <div className="p-4 border-b border-gray-700 flex items-center justify-between">
-          <div>
-            <h3 className="font-medium">Statistics Services</h3>
-            <p className="text-sm text-gray-400">Jellystat or Tautulli for playback history</p>
-          </div>
+        
+        {/* Add Service Dropdown */}
+        <div className="relative" ref={addMenuRef}>
           <button
-            onClick={() => {
-              setEditingStatsService(null);
-              setShowStatsModal(true);
-            }}
-            className="btn btn-primary text-sm"
+            onClick={() => setShowAddMenu(!showAddMenu)}
+            className="btn btn-primary flex items-center gap-2"
           >
-            + Add Service
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            Add Service
+            <svg className={`w-4 h-4 transition-transform ${showAddMenu ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
           </button>
-        </div>
-        <div className="p-4">
-          {statsLoading ? (
-            <div className="flex items-center justify-center h-16">
-              <LoadingSpinner size="sm" />
-            </div>
-          ) : statServices.length === 0 ? (
-            <p className="text-gray-400 text-sm">No statistics services configured.</p>
-          ) : (
-            <div className="space-y-3">
-              {statServices.map((service) => (
-                <ConnectionCard
-                  key={service.id}
-                  name={service.name}
-                  type={service.type}
-                  url={service.url}
-                  enabled={service.isEnabled}
-                  onEdit={() => {
-                    setEditingStatsService(service);
-                    setShowStatsModal(true);
-                  }}
-                  onDelete={() => handleDeleteStatsService(service.id)}
-                  onTest={() => handleTestStatsService(service.id)}
-                />
-              ))}
+          
+          {showAddMenu && (
+            <div className="absolute right-0 mt-2 w-48 rounded-lg shadow-lg border border-gray-700 py-1 z-50" style={{ backgroundColor: '#1a1a1a' }}>
+              <div className="px-3 py-1 text-xs text-gray-500 uppercase tracking-wide">Media Servers</div>
+              <button
+                onClick={() => handleAddClick('jellyfin')}
+                className="w-full px-3 py-2 text-left hover:bg-gray-800 flex items-center gap-2"
+              >
+                <ServiceLogo type="jellyfin" size={20} />
+                Jellyfin
+              </button>
+              <button
+                onClick={() => handleAddClick('emby')}
+                className="w-full px-3 py-2 text-left hover:bg-gray-800 flex items-center gap-2"
+              >
+                <ServiceLogo type="emby" size={20} />
+                Emby
+              </button>
+              
+              <div className="border-t border-gray-700 my-1"></div>
+              <div className="px-3 py-1 text-xs text-gray-500 uppercase tracking-wide">Arr Apps</div>
+              <button
+                onClick={() => handleAddClick('radarr')}
+                className="w-full px-3 py-2 text-left hover:bg-gray-800 flex items-center gap-2"
+              >
+                <ServiceLogo type="radarr" size={20} />
+                Radarr
+              </button>
+              <button
+                onClick={() => handleAddClick('sonarr')}
+                className="w-full px-3 py-2 text-left hover:bg-gray-800 flex items-center gap-2"
+              >
+                <ServiceLogo type="sonarr" size={20} />
+                Sonarr
+              </button>
+              
+              <div className="border-t border-gray-700 my-1"></div>
+              <div className="px-3 py-1 text-xs text-gray-500 uppercase tracking-wide">Statistics</div>
+              <button
+                onClick={() => handleAddClick('jellystat')}
+                className="w-full px-3 py-2 text-left hover:bg-gray-800 flex items-center gap-2"
+              >
+                <ServiceLogo type="jellystat" size={20} />
+                Jellystat
+              </button>
+              <div
+                className="w-full px-3 py-2 text-left flex items-center gap-2 opacity-50 cursor-not-allowed"
+                title="Coming soon"
+              >
+                <ServiceLogo type="tautulli" size={20} />
+                <span>Tautulli</span>
+                <span className="text-xs text-gray-500 ml-auto">Soon</span>
+              </div>
             </div>
           )}
         </div>
       </div>
+
+      {/* Empty State */}
+      {isEmpty && (
+        <div className="card p-12 text-center">
+          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gray-800 flex items-center justify-center">
+            <svg className="w-8 h-8 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2" />
+            </svg>
+          </div>
+          <h3 className="text-lg font-medium mb-1">No services configured</h3>
+          <p className="text-gray-400 text-sm mb-4">
+            Add your first service to get started with Sweeparr.
+          </p>
+        </div>
+      )}
+
+      {/* Loading State */}
+      {statsLoading && allServices.length === 0 && (
+        <div className="card p-8 flex items-center justify-center">
+          <LoadingSpinner size="lg" />
+        </div>
+      )}
+
+      {/* Unified Service List */}
+      {allServices.length > 0 && (
+        <div className="card divide-y divide-gray-700">
+          {allServices.map((service) => {
+            const pathCount = service.serviceCategory === 'arr' 
+              ? pathMappingCounts[`arr-${service.serviceId}`] 
+              : service.serviceCategory === 'server'
+                ? pathMappingCounts[`server-${service.serviceId}`]
+                : 0;
+            
+            return (
+              <UnifiedConnectionRow
+                key={`${service.serviceCategory}-${service.serviceId}`}
+                name={service.name}
+                type={service.type}
+                url={service.url}
+                pathMappingCount={pathCount}
+                onEdit={() => {
+                  if (service.serviceCategory === 'server') {
+                    onEditServer(service as MediaServer);
+                  } else if (service.serviceCategory === 'arr') {
+                    onEditApp(service as ArrApp);
+                  } else {
+                    setEditingStatsService(service as StatisticsService);
+                    setShowStatsModal(true);
+                  }
+                }}
+              />
+            );
+          })}
+        </div>
+      )}
 
       {/* Statistics Service Modal */}
       {showStatsModal && (
@@ -372,8 +462,86 @@ function ConnectionsSection({
             setEditingStatsService(null);
           }}
           onSaved={handleStatsSaved}
+          onDelete={(id) => {
+            handleDeleteStatsService(id);
+            setShowStatsModal(false);
+            setEditingStatsService(null);
+          }}
         />
       )}
+    </div>
+  );
+}
+
+// Unified Connection Row Component
+interface UnifiedConnectionRowProps {
+  name: string;
+  type: string;
+  url: string;
+  pathMappingCount?: number;
+  onEdit: () => void;
+}
+
+function UnifiedConnectionRow({ name, type, url, pathMappingCount, onEdit }: UnifiedConnectionRowProps) {
+  // Truncate URL for display
+  const displayUrl = url.replace(/^https?:\/\//, '').substring(0, 30) + (url.length > 40 ? '...' : '');
+  
+  const getTypeLabel = () => {
+    switch (type) {
+      case 'jellyfin': return 'Jellyfin';
+      case 'emby': return 'Emby';
+      case 'radarr': return 'Radarr';
+      case 'sonarr': return 'Sonarr';
+      case 'jellystat': return 'Jellystat';
+      case 'tautulli': return 'Tautulli';
+      default: return type;
+    }
+  };
+
+  const showPathMappings = ['jellyfin', 'emby', 'radarr', 'sonarr'].includes(type);
+
+  return (
+    <div 
+      className="flex items-center justify-between p-4 hover:bg-hover transition-colors cursor-pointer group"
+      onClick={onEdit}
+    >
+      <div className="flex items-center gap-4 min-w-0 flex-1">
+        <ServiceLogo type={type} size={32} />
+        
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="font-medium truncate">{name}</span>
+            <span className="text-xs px-2 py-0.5 rounded bg-gray-700 text-gray-300">
+              {getTypeLabel()}
+            </span>
+          </div>
+          <p className="text-sm text-gray-500 truncate">{displayUrl}</p>
+        </div>
+      </div>
+      
+      <div className="flex items-center gap-4">
+        {showPathMappings && pathMappingCount !== undefined && pathMappingCount > 0 && (
+          <span className="text-xs text-gray-400">
+            {pathMappingCount} path{pathMappingCount !== 1 ? 's' : ''}
+          </span>
+        )}
+        
+        <button
+          onClick={(e) => { e.stopPropagation(); onEdit(); }}
+          className="btn btn-secondary text-sm opacity-0 group-hover:opacity-100 transition-opacity"
+        >
+          Edit
+        </button>
+        
+        <svg 
+          className="w-5 h-5 text-gray-500 group-hover:text-gray-300 transition-colors" 
+          fill="none" 
+          stroke="currentColor" 
+          viewBox="0 0 24 24"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+        </svg>
+      </div>
     </div>
   );
 }
@@ -1534,11 +1702,12 @@ function StorageSourceModal({ source, onClose, onSaved }: StorageSourceModalProp
   );
 }
 
-// Path Mappings Section - Full implementation
+// Path Mappings Section - Simplified unified view
 function PathMappingsSection() {
   const [servers, setServers] = useState<MediaServer[]>([]);
   const [apps, setApps] = useState<ArrApp[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showHelp, setShowHelp] = useState(false);
   const toast = useToast();
 
   const fetchData = async () => {
@@ -1569,71 +1738,352 @@ function PathMappingsSection() {
     );
   }
 
+  const hasNoServices = apps.length === 0 && servers.length === 0;
+
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-semibold">Path Mappings</h2>
-        <p className="text-sm text-gray-400 mt-1">
-          Configure how paths translate between your services. This is essential when containers mount media at different paths.
-        </p>
-      </div>
-
-      {/* Explanation Card */}
-      <div className="card p-4 bg-blue-900/20 border border-blue-500/30">
-        <h3 className="font-medium text-blue-300 mb-2">📁 How Path Mappings Work</h3>
-        <p className="text-sm text-gray-300 mb-3">
-          When your services run in different containers, they may see the same files at different paths. 
-          Path mappings tell Sweeparr how to translate paths between services.
-        </p>
-        <div className="text-sm text-gray-400 space-y-1">
-          <p><strong>Example:</strong> Your media is stored at <code className="bg-black/30 px-1 rounded">/mnt/tank/media/movies</code> on your NAS</p>
-          <p>• Radarr sees it as: <code className="bg-black/30 px-1 rounded">/movies</code></p>
-          <p>• Sweeparr sees it as: <code className="bg-black/30 px-1 rounded">/data/media/movies</code></p>
-          <p>• Jellyfin sees it as: <code className="bg-black/30 px-1 rounded">/media/movies</code></p>
-        </div>
-      </div>
-
-      {/* Arr App Path Mappings */}
-      <div className="card">
-        <div className="p-4 border-b border-gray-700">
-          <h3 className="font-medium">Arr App Path Mappings</h3>
+    <div className="space-y-4">
+      {/* Header with collapsible help */}
+      <div className="flex items-start justify-between">
+        <div>
+          <h2 className="text-xl font-semibold">Path Mappings</h2>
           <p className="text-sm text-gray-400 mt-1">
-            Map paths from Radarr/Sonarr to how Sweeparr sees them
+            Tell Sweeparr how paths translate between your services.
           </p>
         </div>
-        <div className="p-4">
-          {apps.length === 0 ? (
-            <p className="text-gray-400 text-sm">No Arr apps configured. Add Radarr or Sonarr in Connections first.</p>
+        <button
+          onClick={() => setShowHelp(!showHelp)}
+          className="text-sm text-blue-400 hover:text-blue-300 flex items-center gap-1"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          {showHelp ? 'Hide help' : 'How does this work?'}
+        </button>
+      </div>
+
+      {/* Collapsible help section */}
+      {showHelp && (
+        <div className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-4 text-sm">
+          <p className="text-gray-300 mb-2">
+            When services run in containers, they often see files at different paths.
+          </p>
+          <div className="text-gray-400 space-y-1">
+            <p><strong className="text-gray-300">Example:</strong> Same files, different paths:</p>
+            <p>• Radarr: <code className="bg-black/30 px-1 rounded">/movies</code></p>
+            <p>• Sweeparr: <code className="bg-black/30 px-1 rounded">/data/media/movies</code></p>
+            <p>• Jellyfin: <code className="bg-black/30 px-1 rounded">/media/movies</code></p>
+          </div>
+          <p className="text-gray-400 mt-2">
+            Most setups use the same paths everywhere. Only configure mappings if your paths differ.
+          </p>
+        </div>
+      )}
+
+      {/* Empty state */}
+      {hasNoServices && (
+        <div className="card p-8 text-center">
+          <p className="text-gray-400">No services configured yet.</p>
+          <p className="text-sm text-gray-500 mt-1">
+            Add Radarr, Sonarr, Jellyfin, or Emby in <a href="/settings/connections" className="text-orange-400 hover:underline">Connections</a> first.
+          </p>
+        </div>
+      )}
+
+      {/* Unified service list */}
+      {!hasNoServices && (
+        <div className="space-y-3">
+          {/* Arr Apps */}
+          {apps.map(app => (
+            <UnifiedPathMappingCard
+              key={`arr-${app.id}`}
+              id={app.id}
+              name={app.name}
+              type={app.type}
+              serviceType="arr"
+              onSaved={fetchData}
+            />
+          ))}
+          
+          {/* Media Servers */}
+          {servers.map(server => (
+            <UnifiedPathMappingCard
+              key={`server-${server.id}`}
+              id={server.id}
+              name={server.name}
+              type={server.type}
+              serviceType="mediaServer"
+              onSaved={fetchData}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Unified Path Mapping Card - Works for both Arr apps and Media Servers
+interface UnifiedPathMappingCardProps {
+  id: number;
+  name: string;
+  type: string;
+  serviceType: 'arr' | 'mediaServer';
+  onSaved: () => void;
+}
+
+function UnifiedPathMappingCard({ id, name, type, serviceType, onSaved }: UnifiedPathMappingCardProps) {
+  const [expanded, setExpanded] = useState(false);
+  const [mappings, setMappings] = useState<Array<{ localPath: string; remotePath: string; customPath?: boolean }>>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [hasChanges, setHasChanges] = useState(false);
+  const [browsingIndex, setBrowsingIndex] = useState<number | null>(null);
+  const toast = useToast();
+
+  // Determine the remote path field name based on service type
+  const remotePathKey = serviceType === 'arr' ? 'arrPath' : 'mediaServerPath';
+  const endpoint = serviceType === 'arr' ? `/path-mappings/arr/${id}` : `/path-mappings/media-server/${id}`;
+
+  useEffect(() => {
+    const fetchMappings = async () => {
+      try {
+        const { get } = await import('../api/client');
+        const response = await get<{ success: boolean; data: Array<any> }>(endpoint);
+        // Normalize the data structure
+        const normalized = (response.data || []).map((m: any) => ({
+          localPath: m.localPath || '',
+          remotePath: m[remotePathKey] || m.localPath || '',
+          customPath: m.localPath !== (m[remotePathKey] || m.localPath),
+        }));
+        setMappings(normalized);
+      } catch (error) {
+        console.error('Failed to fetch mappings:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchMappings();
+  }, [id, endpoint, remotePathKey]);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const { put } = await import('../api/client');
+      // Convert back to the expected format
+      const payload = mappings.map(m => ({
+        localPath: m.localPath,
+        [remotePathKey]: m.customPath ? m.remotePath : m.localPath,
+      }));
+      await put(endpoint, { mappings: payload });
+      toast.success('Path mappings saved');
+      setHasChanges(false);
+      onSaved();
+    } catch (error) {
+      console.error('Failed to save mappings:', error);
+      toast.error('Failed to save mappings');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const addMapping = () => {
+    setMappings([...mappings, { localPath: '', remotePath: '', customPath: false }]);
+    setHasChanges(true);
+    setExpanded(true);
+  };
+
+  const removeMapping = (index: number) => {
+    setMappings(mappings.filter((_, i) => i !== index));
+    setHasChanges(true);
+  };
+
+  const updateMapping = (index: number, field: 'localPath' | 'remotePath' | 'customPath', value: string | boolean) => {
+    const updated = [...mappings];
+    if (field === 'customPath') {
+      updated[index].customPath = value as boolean;
+      if (!value) {
+        updated[index].remotePath = updated[index].localPath;
+      }
+    } else if (field === 'localPath') {
+      updated[index].localPath = value as string;
+      if (!updated[index].customPath) {
+        updated[index].remotePath = value as string;
+      }
+    } else {
+      updated[index].remotePath = value as string;
+    }
+    setMappings(updated);
+    setHasChanges(true);
+  };
+
+  const getServiceLabel = () => {
+    switch (type) {
+      case 'radarr': return 'Radarr';
+      case 'sonarr': return 'Sonarr';
+      case 'jellyfin': return 'Jellyfin';
+      case 'emby': return 'Emby';
+      default: return name;
+    }
+  };
+
+  const mappingCount = mappings.length;
+  const allPathsSame = mappings.every(m => m.localPath === m.remotePath);
+
+  return (
+    <div className="card">
+      {/* Header - always visible */}
+      <div 
+        className="p-4 flex items-center justify-between cursor-pointer hover:bg-hover transition-colors"
+        onClick={() => setExpanded(!expanded)}
+      >
+        <div className="flex items-center gap-3">
+          <ServiceLogo type={type} size={28} />
+          <div>
+            <span className="font-medium">{name}</span>
+            <span className="text-sm text-gray-500 ml-2">({getServiceLabel()})</span>
+          </div>
+        </div>
+        
+        <div className="flex items-center gap-3">
+          {loading ? (
+            <LoadingSpinner size="sm" />
+          ) : mappingCount > 0 ? (
+            <span className="text-sm text-gray-400">
+              {mappingCount} path{mappingCount !== 1 ? 's' : ''}
+              {allPathsSame && <span className="text-green-500 ml-1">✓ same</span>}
+            </span>
           ) : (
-            <div className="space-y-4">
-              {apps.map(app => (
-                <ArrPathMappingCard key={app.id} app={app} onSaved={fetchData} />
-              ))}
-            </div>
+            <span className="text-sm text-gray-500">No mappings</span>
           )}
+          
+          <svg 
+            className={`w-5 h-5 text-gray-400 transition-transform ${expanded ? 'rotate-180' : ''}`} 
+            fill="none" 
+            stroke="currentColor" 
+            viewBox="0 0 24 24"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
         </div>
       </div>
 
-      {/* Media Server Configuration (Path Mappings + Leaving Soon) */}
-      <div className="card">
-        <div className="p-4 border-b border-gray-700">
-          <h3 className="font-medium">Media Server Configuration</h3>
-          <p className="text-sm text-gray-400 mt-1">
-            Configure path mappings and Leaving Soon library paths for your media servers
-          </p>
-        </div>
-        <div className="p-4">
-          {servers.length === 0 ? (
-            <p className="text-gray-400 text-sm">No media servers configured. Add Jellyfin or Emby in Connections first.</p>
+      {/* Expanded content */}
+      {expanded && (
+        <div className="border-t border-gray-700 p-4 space-y-3">
+          {mappings.length === 0 ? (
+            <p className="text-sm text-gray-500 text-center py-2">
+              No path mappings configured. Paths are assumed to be the same.
+            </p>
           ) : (
-            <div className="space-y-4">
-              {servers.map(server => (
-                <MediaServerConfigCard key={server.id} server={server} onSaved={fetchData} />
-              ))}
-            </div>
+            mappings.map((mapping, index) => (
+              <div key={index} className="bg-tertiary rounded-lg p-3 space-y-2">
+                {/* Sweeparr Path */}
+                <div>
+                  <label className="text-xs text-gray-400 mb-1 block">Sweeparr Path</label>
+                  <div className="flex gap-1">
+                    <input
+                      type="text"
+                      value={mapping.localPath}
+                      onChange={(e) => updateMapping(index, 'localPath', e.target.value)}
+                      className="input flex-1 text-sm"
+                      placeholder="/data/media/movies"
+                    />
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setBrowsingIndex(index); }}
+                      className="btn btn-secondary text-sm px-2"
+                      title="Browse"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                      </svg>
+                    </button>
+                    <button
+                      onClick={() => removeMapping(index)}
+                      className="btn btn-danger text-sm px-2"
+                      title="Remove"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Custom path toggle */}
+                <div className="flex items-center justify-between pt-2 border-t border-gray-600">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => updateMapping(index, 'customPath', !mapping.customPath)}
+                      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                        mapping.customPath ? 'bg-orange-600' : 'bg-gray-600'
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
+                          mapping.customPath ? 'translate-x-[18px]' : 'translate-x-1'
+                        }`}
+                      />
+                    </button>
+                    <span className="text-sm text-gray-400">
+                      {getServiceLabel()} uses a different path
+                    </span>
+                  </div>
+                  {!mapping.customPath && mapping.localPath && (
+                    <span className="text-xs text-gray-500">
+                      {getServiceLabel()}: <code className="bg-black/30 px-1 rounded">{mapping.localPath}</code>
+                    </span>
+                  )}
+                </div>
+
+                {/* Custom path input */}
+                {mapping.customPath && (
+                  <div>
+                    <label className="text-xs text-gray-400 mb-1 block">{getServiceLabel()} Path</label>
+                    <input
+                      type="text"
+                      value={mapping.remotePath}
+                      onChange={(e) => updateMapping(index, 'remotePath', e.target.value)}
+                      className="input w-full text-sm"
+                      placeholder={`/${type === 'radarr' ? 'movies' : type === 'sonarr' ? 'tv' : 'media'}`}
+                    />
+                  </div>
+                )}
+              </div>
+            ))
           )}
+
+          {/* Actions */}
+          <div className="flex items-center justify-between pt-2">
+            <button onClick={addMapping} className="btn btn-secondary text-sm">
+              + Add Path
+            </button>
+            
+            {hasChanges && (
+              <button 
+                onClick={handleSave} 
+                disabled={saving}
+                className="btn btn-primary text-sm"
+              >
+                {saving ? 'Saving...' : 'Save Changes'}
+              </button>
+            )}
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* File Browser Modal */}
+      <FileBrowser
+        isOpen={browsingIndex !== null}
+        onClose={() => setBrowsingIndex(null)}
+        onSelect={(path) => {
+          if (browsingIndex !== null) {
+            updateMapping(browsingIndex, 'localPath', path);
+          }
+        }}
+        initialPath={browsingIndex !== null ? mappings[browsingIndex]?.localPath || '/' : '/'}
+        title="Select Sweeparr Path"
+      />
     </div>
   );
 }
@@ -1646,10 +2096,11 @@ interface ArrPathMappingCardProps {
 
 function ArrPathMappingCard({ app, onSaved }: ArrPathMappingCardProps) {
   const [editing, setEditing] = useState(false);
-  const [mappings, setMappings] = useState<Array<{ arrPath: string; localPath: string }>>([]);
+  const [mappings, setMappings] = useState<Array<{ arrPath: string; localPath: string; customPath?: boolean }>>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testResults, setTestResults] = useState<Array<{ mapping: { arrPath: string; localPath: string }; localPathExists: boolean; message: string }> | null>(null);
+  const [browsingIndex, setBrowsingIndex] = useState<number | null>(null);
   const toast = useToast();
 
   useEffect(() => {
@@ -1695,16 +2146,28 @@ function ArrPathMappingCard({ app, onSaved }: ArrPathMappingCardProps) {
   };
 
   const addMapping = () => {
-    setMappings([...mappings, { arrPath: '', localPath: '' }]);
+    setMappings([...mappings, { arrPath: '', localPath: '', customPath: false }]);
   };
 
   const removeMapping = (index: number) => {
     setMappings(mappings.filter((_, i) => i !== index));
   };
 
-  const updateMapping = (index: number, field: 'arrPath' | 'localPath', value: string) => {
+  const updateMapping = (index: number, field: 'arrPath' | 'localPath' | 'customPath', value: string | boolean) => {
     const updated = [...mappings];
-    updated[index][field] = value;
+    if (field === 'customPath') {
+      updated[index].customPath = value as boolean;
+      // When disabling custom path, sync arrPath to localPath
+      if (!value) {
+        updated[index].arrPath = updated[index].localPath;
+      }
+    } else {
+      (updated[index] as any)[field] = value;
+      // Auto-sync arrPath when localPath changes and customPath is off
+      if (field === 'localPath' && !updated[index].customPath) {
+        updated[index].arrPath = value as string;
+      }
+    }
     setMappings(updated);
   };
 
@@ -1757,34 +2220,78 @@ function ArrPathMappingCard({ app, onSaved }: ArrPathMappingCardProps) {
             <p className="text-sm text-gray-400">No mappings configured. Click "Add Mapping" to start.</p>
           ) : (
             mappings.map((mapping, index) => (
-              <div key={index} className="flex items-center gap-2">
-                <div className="flex-1">
-                  <label className="text-xs text-gray-400 mb-1 block">{app.type === 'radarr' ? 'Radarr' : 'Sonarr'} Path</label>
-                  <input
-                    type="text"
-                    value={mapping.arrPath}
-                    onChange={(e) => updateMapping(index, 'arrPath', e.target.value)}
-                    className="input w-full text-sm"
-                    placeholder="/movies"
-                  />
+              <div key={index} className="bg-secondary/30 rounded-lg p-3 space-y-2">
+                <div className="flex items-center gap-2">
+                  <div className="flex-1">
+                    <label className="text-xs text-gray-400 mb-1 block">Sweeparr Path</label>
+                    <div className="flex gap-1">
+                      <input
+                        type="text"
+                        value={mapping.localPath}
+                        onChange={(e) => updateMapping(index, 'localPath', e.target.value)}
+                        className="input flex-1 text-sm"
+                        placeholder="/data/media/movies"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setBrowsingIndex(index)}
+                        className="btn btn-secondary text-sm px-2"
+                        title="Browse"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => removeMapping(index)}
+                    className="btn btn-danger text-sm mt-5"
+                  >
+                    ✕
+                  </button>
                 </div>
-                <span className="text-gray-500 mt-5">→</span>
-                <div className="flex-1">
-                  <label className="text-xs text-gray-400 mb-1 block">Sweeparr Path</label>
-                  <input
-                    type="text"
-                    value={mapping.localPath}
-                    onChange={(e) => updateMapping(index, 'localPath', e.target.value)}
-                    className="input w-full text-sm"
-                    placeholder="/data/media/movies"
-                  />
+                
+                {/* Custom path toggle */}
+                <div className="flex items-center justify-between pt-2 border-t border-gray-700">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => updateMapping(index, 'customPath', !mapping.customPath)}
+                      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                        mapping.customPath ? 'bg-orange-600' : 'bg-gray-600'
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
+                          mapping.customPath ? 'translate-x-[18px]' : 'translate-x-1'
+                        }`}
+                      />
+                    </button>
+                    <span className="text-sm text-gray-400">
+                      {app.type === 'radarr' ? 'Radarr' : 'Sonarr'} uses a different path
+                    </span>
+                  </div>
+                  {!mapping.customPath && mapping.localPath && (
+                    <span className="text-xs text-gray-500">
+                      {app.type === 'radarr' ? 'Radarr' : 'Sonarr'} path: <code className="bg-black/30 px-1 rounded">{mapping.localPath}</code>
+                    </span>
+                  )}
                 </div>
-                <button
-                  onClick={() => removeMapping(index)}
-                  className="btn btn-danger text-sm mt-5"
-                >
-                  ✕
-                </button>
+                
+                {/* Custom path input - only shown when toggle is on */}
+                {mapping.customPath && (
+                  <div>
+                    <label className="text-xs text-gray-400 mb-1 block">{app.type === 'radarr' ? 'Radarr' : 'Sonarr'} Path</label>
+                    <input
+                      type="text"
+                      value={mapping.arrPath}
+                      onChange={(e) => updateMapping(index, 'arrPath', e.target.value)}
+                      className="input w-full text-sm"
+                      placeholder="/movies"
+                    />
+                  </div>
+                )}
               </div>
             ))
           )}
@@ -1796,10 +2303,9 @@ function ArrPathMappingCard({ app, onSaved }: ArrPathMappingCardProps) {
         <div className="space-y-1">
           {mappings.map((mapping, index) => {
             const testResult = testResults?.find(r => r.mapping.localPath === mapping.localPath);
+            const pathsDiffer = mapping.localPath !== mapping.arrPath;
             return (
               <div key={index} className="flex items-center gap-2 text-sm text-gray-400">
-                <code className="bg-black/30 px-1 rounded">{mapping.arrPath}</code>
-                <span>→</span>
                 {testResult && (
                   <span 
                     className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${testResult.localPathExists ? 'bg-green-500' : 'bg-red-500'}`} 
@@ -1807,6 +2313,12 @@ function ArrPathMappingCard({ app, onSaved }: ArrPathMappingCardProps) {
                   />
                 )}
                 <code className="bg-black/30 px-1 rounded">{mapping.localPath}</code>
+                {pathsDiffer && (
+                  <>
+                    <span>→</span>
+                    <code className="bg-black/30 px-1 rounded">{mapping.arrPath}</code>
+                  </>
+                )}
               </div>
             );
           })}
@@ -1814,6 +2326,19 @@ function ArrPathMappingCard({ app, onSaved }: ArrPathMappingCardProps) {
       ) : (
         <p className="text-sm text-gray-500">No path mappings configured</p>
       )}
+
+      {/* File Browser Modal */}
+      <FileBrowser
+        isOpen={browsingIndex !== null}
+        onClose={() => setBrowsingIndex(null)}
+        onSelect={(path) => {
+          if (browsingIndex !== null) {
+            updateMapping(browsingIndex, 'localPath', path);
+          }
+        }}
+        initialPath={browsingIndex !== null ? mappings[browsingIndex]?.localPath || '/' : '/'}
+        title="Select Sweeparr Path"
+      />
     </div>
   );
 }
@@ -1986,7 +2511,7 @@ interface MediaServerConfigCardProps {
 function MediaServerConfigCard({ server, onSaved }: MediaServerConfigCardProps) {
   const [mappingsEditing, setMappingsEditing] = useState(false);
   const [leavingSoonEditing, setLeavingSoonEditing] = useState(false);
-  const [mappings, setMappings] = useState<Array<{ localPath: string; mediaServerPath: string }>>([]);
+  const [mappings, setMappings] = useState<Array<{ localPath: string; mediaServerPath: string; customPath?: boolean }>>([]);
   const [mappingsLoading, setMappingsLoading] = useState(true);
   const [mappingsSaving, setMappingsSaving] = useState(false);
   const [mappingsTestResults, setMappingsTestResults] = useState<Array<{ mapping: { localPath: string; mediaServerPath: string }; localPathExists: boolean; message: string }> | null>(null);
@@ -1996,6 +2521,8 @@ function MediaServerConfigCard({ server, onSaved }: MediaServerConfigCardProps) 
   });
   const [leavingSoonSaving, setLeavingSoonSaving] = useState(false);
   const [leavingSoonTestResults, setLeavingSoonTestResults] = useState<{ movies?: { exists: boolean; message: string }; tv?: { exists: boolean; message: string } } | null>(null);
+  const [browsingMappingIndex, setBrowsingMappingIndex] = useState<number | null>(null);
+  const [browsingLeavingSoon, setBrowsingLeavingSoon] = useState<'movies' | 'tv' | null>(null);
   const toast = useToast();
 
   // Fetch path mappings and auto-test
@@ -2094,16 +2621,28 @@ function MediaServerConfigCard({ server, onSaved }: MediaServerConfigCardProps) 
   };
 
   const addMapping = () => {
-    setMappings([...mappings, { localPath: '', mediaServerPath: '' }]);
+    setMappings([...mappings, { localPath: '', mediaServerPath: '', customPath: false }]);
   };
 
   const removeMapping = (index: number) => {
     setMappings(mappings.filter((_, i) => i !== index));
   };
 
-  const updateMapping = (index: number, field: 'localPath' | 'mediaServerPath', value: string) => {
+  const updateMapping = (index: number, field: 'localPath' | 'mediaServerPath' | 'customPath', value: string | boolean) => {
     const updated = [...mappings];
-    updated[index][field] = value;
+    if (field === 'customPath') {
+      updated[index].customPath = value as boolean;
+      // When disabling custom path, sync mediaServerPath to localPath
+      if (!value) {
+        updated[index].mediaServerPath = updated[index].localPath;
+      }
+    } else {
+      (updated[index] as any)[field] = value;
+      // Auto-sync mediaServerPath when localPath changes and customPath is off
+      if (field === 'localPath' && !updated[index].customPath) {
+        updated[index].mediaServerPath = value as string;
+      }
+    }
     setMappings(updated);
   };
 
@@ -2174,34 +2713,78 @@ function MediaServerConfigCard({ server, onSaved }: MediaServerConfigCardProps) 
               <p className="text-sm text-gray-400">No mappings configured. Click "Add Mapping" to start.</p>
             ) : (
               mappings.map((mapping, index) => (
-                <div key={index} className="flex items-center gap-2">
-                  <div className="flex-1">
-                    <label className="text-xs text-gray-400 mb-1 block">Sweeparr Path</label>
-                    <input
-                      type="text"
-                      value={mapping.localPath}
-                      onChange={(e) => updateMapping(index, 'localPath', e.target.value)}
-                      className="input w-full text-sm"
-                      placeholder="/data/media/movies"
-                    />
+                <div key={index} className="bg-secondary/30 rounded-lg p-3 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1">
+                      <label className="text-xs text-gray-400 mb-1 block">Sweeparr Path</label>
+                      <div className="flex gap-1">
+                        <input
+                          type="text"
+                          value={mapping.localPath}
+                          onChange={(e) => updateMapping(index, 'localPath', e.target.value)}
+                          className="input flex-1 text-sm"
+                          placeholder="/data/media/movies"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setBrowsingMappingIndex(index)}
+                          className="btn btn-secondary text-sm px-2"
+                          title="Browse"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => removeMapping(index)}
+                      className="btn btn-danger text-sm mt-5"
+                    >
+                      ✕
+                    </button>
                   </div>
-                  <span className="text-gray-500 mt-5">→</span>
-                  <div className="flex-1">
-                    <label className="text-xs text-gray-400 mb-1 block">{server.name} Path</label>
-                    <input
-                      type="text"
-                      value={mapping.mediaServerPath}
-                      onChange={(e) => updateMapping(index, 'mediaServerPath', e.target.value)}
-                      className="input w-full text-sm"
-                      placeholder="/media/movies"
-                    />
+                  
+                  {/* Custom path toggle */}
+                  <div className="flex items-center justify-between pt-2 border-t border-gray-700">
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => updateMapping(index, 'customPath', !mapping.customPath)}
+                        className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                          mapping.customPath ? 'bg-orange-600' : 'bg-gray-600'
+                        }`}
+                      >
+                        <span
+                          className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
+                            mapping.customPath ? 'translate-x-[18px]' : 'translate-x-1'
+                          }`}
+                        />
+                      </button>
+                      <span className="text-sm text-gray-400">
+                        {server.name} uses a different path
+                      </span>
+                    </div>
+                    {!mapping.customPath && mapping.localPath && (
+                      <span className="text-xs text-gray-500">
+                        {server.name} path: <code className="bg-black/30 px-1 rounded">{mapping.localPath}</code>
+                      </span>
+                    )}
                   </div>
-                  <button
-                    onClick={() => removeMapping(index)}
-                    className="btn btn-danger text-sm mt-5"
-                  >
-                    ✕
-                  </button>
+                  
+                  {/* Custom path input - only shown when toggle is on */}
+                  {mapping.customPath && (
+                    <div>
+                      <label className="text-xs text-gray-400 mb-1 block">{server.name} Path</label>
+                      <input
+                        type="text"
+                        value={mapping.mediaServerPath}
+                        onChange={(e) => updateMapping(index, 'mediaServerPath', e.target.value)}
+                        className="input w-full text-sm"
+                        placeholder="/media/movies"
+                      />
+                    </div>
+                  )}
                 </div>
               ))
             )}
@@ -2213,6 +2796,7 @@ function MediaServerConfigCard({ server, onSaved }: MediaServerConfigCardProps) 
           <div className="space-y-1">
             {mappings.map((mapping, index) => {
               const testResult = mappingsTestResults?.find(r => r.mapping.localPath === mapping.localPath);
+              const pathsDiffer = mapping.localPath !== mapping.mediaServerPath;
               return (
                 <div key={index} className="flex items-center gap-2 text-sm text-gray-400">
                   {testResult && (
@@ -2222,8 +2806,12 @@ function MediaServerConfigCard({ server, onSaved }: MediaServerConfigCardProps) 
                     />
                   )}
                   <code className="bg-black/30 px-1 rounded">{mapping.localPath}</code>
-                  <span>→</span>
-                  <code className="bg-black/30 px-1 rounded">{mapping.mediaServerPath}</code>
+                  {pathsDiffer && (
+                    <>
+                      <span>→</span>
+                      <code className="bg-black/30 px-1 rounded">{mapping.mediaServerPath}</code>
+                    </>
+                  )}
                 </div>
               );
             })}
@@ -2263,23 +2851,47 @@ function MediaServerConfigCard({ server, onSaved }: MediaServerConfigCardProps) 
             </p>
             <div>
               <label className="text-xs text-gray-400 mb-1 block">Movies Symlink Path</label>
-              <input
-                type="text"
-                value={leavingSoonPaths.moviesLocalPath}
-                onChange={(e) => setLeavingSoonPaths({ ...leavingSoonPaths, moviesLocalPath: e.target.value })}
-                className="input w-full text-sm"
-                placeholder="/mnt/media-library/leaving-soon/movies"
-              />
+              <div className="flex gap-1">
+                <input
+                  type="text"
+                  value={leavingSoonPaths.moviesLocalPath}
+                  onChange={(e) => setLeavingSoonPaths({ ...leavingSoonPaths, moviesLocalPath: e.target.value })}
+                  className="input flex-1 text-sm"
+                  placeholder="/mnt/media-library/leaving-soon/movies"
+                />
+                <button
+                  type="button"
+                  onClick={() => setBrowsingLeavingSoon('movies')}
+                  className="btn btn-secondary text-sm px-2"
+                  title="Browse"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                  </svg>
+                </button>
+              </div>
             </div>
             <div>
               <label className="text-xs text-gray-400 mb-1 block">TV Shows Symlink Path</label>
-              <input
-                type="text"
-                value={leavingSoonPaths.tvLocalPath}
-                onChange={(e) => setLeavingSoonPaths({ ...leavingSoonPaths, tvLocalPath: e.target.value })}
-                className="input w-full text-sm"
-                placeholder="/mnt/media-library/leaving-soon/tv"
-              />
+              <div className="flex gap-1">
+                <input
+                  type="text"
+                  value={leavingSoonPaths.tvLocalPath}
+                  onChange={(e) => setLeavingSoonPaths({ ...leavingSoonPaths, tvLocalPath: e.target.value })}
+                  className="input flex-1 text-sm"
+                  placeholder="/mnt/media-library/leaving-soon/tv"
+                />
+                <button
+                  type="button"
+                  onClick={() => setBrowsingLeavingSoon('tv')}
+                  className="btn btn-secondary text-sm px-2"
+                  title="Browse"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                  </svg>
+                </button>
+              </div>
             </div>
           </div>
         ) : leavingSoonConfigured ? (
@@ -2313,6 +2925,39 @@ function MediaServerConfigCard({ server, onSaved }: MediaServerConfigCardProps) 
           <p className="text-sm text-gray-500">No symlink paths configured</p>
         )}
       </div>
+
+      {/* File Browser Modals */}
+      <FileBrowser
+        isOpen={browsingMappingIndex !== null}
+        onClose={() => setBrowsingMappingIndex(null)}
+        onSelect={(path) => {
+          if (browsingMappingIndex !== null) {
+            updateMapping(browsingMappingIndex, 'localPath', path);
+          }
+        }}
+        initialPath={browsingMappingIndex !== null ? mappings[browsingMappingIndex]?.localPath || '/' : '/'}
+        title="Select Sweeparr Path"
+      />
+
+      <FileBrowser
+        isOpen={browsingLeavingSoon !== null}
+        onClose={() => setBrowsingLeavingSoon(null)}
+        onSelect={(path) => {
+          if (browsingLeavingSoon === 'movies') {
+            setLeavingSoonPaths({ ...leavingSoonPaths, moviesLocalPath: path });
+          } else if (browsingLeavingSoon === 'tv') {
+            setLeavingSoonPaths({ ...leavingSoonPaths, tvLocalPath: path });
+          }
+        }}
+        initialPath={
+          browsingLeavingSoon === 'movies' 
+            ? leavingSoonPaths.moviesLocalPath || '/' 
+            : browsingLeavingSoon === 'tv' 
+              ? leavingSoonPaths.tvLocalPath || '/'
+              : '/'
+        }
+        title={browsingLeavingSoon === 'movies' ? 'Select Movies Symlink Path' : 'Select TV Shows Symlink Path'}
+      />
     </div>
   );
 }
@@ -2555,6 +3200,11 @@ function StatisticsServicesSection() {
             setEditingService(null);
           }}
           onSaved={handleSaved}
+          onDelete={(id) => {
+            handleDelete(id);
+            setShowModal(false);
+            setEditingService(null);
+          }}
         />
       )}
     </div>
@@ -2565,9 +3215,10 @@ interface StatisticsServiceModalProps {
   service: StatisticsService | null;
   onClose: () => void;
   onSaved: () => void;
+  onDelete?: (id: number) => void;
 }
 
-function StatisticsServiceModal({ service, onClose, onSaved }: StatisticsServiceModalProps) {
+function StatisticsServiceModal({ service, onClose, onSaved, onDelete }: StatisticsServiceModalProps) {
   const [form, setForm] = useState({
     name: service?.name || '',
     type: service?.type || 'jellystat' as StatisticsServiceType,
@@ -2579,6 +3230,15 @@ function StatisticsServiceModal({ service, onClose, onSaved }: StatisticsService
   const [testing, setTesting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<ConnectionTestResult | null>(null);
+  const [connectionVerified, setConnectionVerified] = useState(!!service);
+
+  // Reset verification when connection details change
+  useEffect(() => {
+    if (!service) {
+      setConnectionVerified(false);
+      setTestResult(null);
+    }
+  }, [form.url, form.apiKey, form.type]);
 
   const handleTest = async () => {
     if (!form.url || !form.apiKey) {
@@ -2597,8 +3257,10 @@ function StatisticsServiceModal({ service, onClose, onSaved }: StatisticsService
         apiKey: form.apiKey,
       });
       setTestResult(result.data);
+      setConnectionVerified(result.data.connected);
     } catch (err: any) {
       setTestResult({ connected: false, message: err?.message || 'Test failed' });
+      setConnectionVerified(false);
     } finally {
       setTesting(false);
     }
@@ -2606,6 +3268,12 @@ function StatisticsServiceModal({ service, onClose, onSaved }: StatisticsService
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (!connectionVerified && !service) {
+      setError('Please test the connection before saving');
+      return;
+    }
+    
     setSaving(true);
     setError(null);
 
@@ -2616,7 +3284,6 @@ function StatisticsServiceModal({ service, onClose, onSaved }: StatisticsService
         url: form.url,
         isEnabled: form.enabled,
       };
-      // Only include apiKey if provided (for create or update)
       if (form.apiKey) {
         payload.apiKey = form.apiKey;
       }
@@ -2634,6 +3301,8 @@ function StatisticsServiceModal({ service, onClose, onSaved }: StatisticsService
     }
   };
 
+  const canSave = service ? true : connectionVerified;
+
   return (
     <Modal onClose={onClose} title={service ? 'Edit Statistics Service' : 'Add Statistics Service'}>
       <form onSubmit={handleSubmit} className="space-y-4">
@@ -2648,7 +3317,10 @@ function StatisticsServiceModal({ service, onClose, onSaved }: StatisticsService
           <IconSelect
             options={statisticsServiceOptions}
             value={form.type}
-            onChange={(value) => setForm({ ...form, type: value as StatisticsServiceType })}
+            onChange={(value) => {
+              setForm({ ...form, type: value as StatisticsServiceType });
+              setConnectionVerified(false);
+            }}
             disabled={!!service}
           />
         </div>
@@ -2670,7 +3342,10 @@ function StatisticsServiceModal({ service, onClose, onSaved }: StatisticsService
           <input
             type="url"
             value={form.url}
-            onChange={(e) => setForm({ ...form, url: e.target.value })}
+            onChange={(e) => {
+              setForm({ ...form, url: e.target.value });
+              setConnectionVerified(false);
+            }}
             className="input w-full"
             placeholder={form.type === 'jellystat' ? 'http://localhost:3000' : 'http://localhost:8181'}
             required
@@ -2684,7 +3359,10 @@ function StatisticsServiceModal({ service, onClose, onSaved }: StatisticsService
           <input
             type="password"
             value={form.apiKey}
-            onChange={(e) => setForm({ ...form, apiKey: e.target.value })}
+            onChange={(e) => {
+              setForm({ ...form, apiKey: e.target.value });
+              setConnectionVerified(false);
+            }}
             className="input w-full"
             placeholder={service ? '••••••••' : 'Enter API key'}
             required={!service}
@@ -2717,20 +3395,47 @@ function StatisticsServiceModal({ service, onClose, onSaved }: StatisticsService
           </div>
         )}
 
-        <div className="flex justify-between gap-3 pt-4">
-          <button
-            type="button"
-            onClick={handleTest}
-            disabled={testing || !form.url || !form.apiKey}
-            className="btn btn-secondary"
-          >
-            {testing ? 'Testing...' : 'Test Connection'}
-          </button>
-          <div className="flex gap-3">
+        {!service && !connectionVerified && (
+          <p className="text-xs text-gray-500">
+            Test the connection before saving to verify your settings.
+          </p>
+        )}
+
+        <div className="flex justify-between gap-3 pt-4 border-t border-gray-700">
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={handleTest}
+              disabled={testing || !form.url || !form.apiKey}
+              className="btn btn-secondary"
+            >
+              {testing ? 'Testing...' : 'Test Connection'}
+            </button>
+            {service && onDelete && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (confirm('Are you sure you want to delete this service?')) {
+                    onDelete(service.id);
+                    onClose();
+                  }
+                }}
+                className="btn btn-danger"
+              >
+                Delete
+              </button>
+            )}
+          </div>
+          <div className="flex gap-2">
             <button type="button" onClick={onClose} className="btn btn-secondary">
               Cancel
             </button>
-            <button type="submit" disabled={saving} className="btn btn-primary">
+            <button 
+              type="submit" 
+              disabled={saving || !canSave} 
+              className="btn btn-primary"
+              title={!canSave ? 'Test connection first' : ''}
+            >
               {saving ? 'Saving...' : 'Save'}
             </button>
           </div>
@@ -3817,6 +4522,13 @@ function GeneralSection() {
   const [backupSaving, setBackupSaving] = useState(false);
   const [regeneratingKey, setRegeneratingKey] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
+  
+  // Media paths state
+  const [mediaPathsLoading, setMediaPathsLoading] = useState(true);
+  const [mediaPaths, setMediaPaths] = useState<Array<{ id: number; path: string; label: string | null; mediaType: string | null }>>([]);
+  const [newPath, setNewPath] = useState('');
+  const [addingPath, setAddingPath] = useState(false);
+  const [showFileBrowser, setShowFileBrowser] = useState(false);
 
   // Application settings
   const [appSettings, setAppSettings] = useState({
@@ -3891,6 +4603,50 @@ function GeneralSection() {
     };
     loadSettings();
   }, []);
+
+  // Load media paths
+  useEffect(() => {
+    const loadMediaPaths = async () => {
+      try {
+        const { mediaPaths: mediaPathsApi } = await import('../api');
+        const response = await mediaPathsApi.list();
+        setMediaPaths(response.data || []);
+      } catch (error) {
+        console.error('Failed to load media paths:', error);
+      } finally {
+        setMediaPathsLoading(false);
+      }
+    };
+    loadMediaPaths();
+  }, []);
+
+  // Media paths handlers
+  const addMediaPath = async () => {
+    if (!newPath.trim()) return;
+    setAddingPath(true);
+    try {
+      const { mediaPaths: mediaPathsApi } = await import('../api');
+      const response = await mediaPathsApi.create({ path: newPath.trim() });
+      setMediaPaths([...mediaPaths, response.data]);
+      setNewPath('');
+    } catch (error: any) {
+      console.error('Failed to add media path:', error);
+      alert(error?.message || 'Failed to add path');
+    } finally {
+      setAddingPath(false);
+    }
+  };
+
+  const removeMediaPath = async (id: number) => {
+    if (!confirm('Are you sure you want to remove this path?')) return;
+    try {
+      const { mediaPaths: mediaPathsApi } = await import('../api');
+      await mediaPathsApi.delete(id);
+      setMediaPaths(mediaPaths.filter(p => p.id !== id));
+    } catch (error) {
+      console.error('Failed to remove media path:', error);
+    }
+  };
 
   // Generate random API key
   function generateApiKey() {
@@ -4063,6 +4819,96 @@ function GeneralSection() {
           </button>
         </div>
       </div>
+
+      {/* Media Paths */}
+      <div className="card">
+        <div className="p-4 border-b border-gray-700">
+          <h3 className="font-medium">Media Paths</h3>
+          <p className="text-sm text-gray-400 mt-1">
+            Paths where Sweeparr can access your media files.
+          </p>
+        </div>
+        <div className="p-4">
+          {mediaPathsLoading ? (
+            <div className="flex items-center gap-2 text-gray-400">
+              <LoadingSpinner size="sm" /> Loading...
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {mediaPaths.length === 0 ? (
+                <p className="text-gray-500 text-sm">No media paths configured.</p>
+              ) : (
+                mediaPaths.map((mp) => (
+                  <div
+                    key={mp.id}
+                    className="flex items-center justify-between p-3 bg-tertiary rounded-lg"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <svg className="w-5 h-5 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                      </svg>
+                      <span className="font-mono text-sm truncate">{mp.path}</span>
+                    </div>
+                    <button
+                      onClick={() => removeMediaPath(mp.id)}
+                      className="btn btn-danger text-sm px-2 py-1 flex-shrink-0"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                ))
+              )}
+              
+              <div className="flex gap-2 pt-2">
+                <input
+                  type="text"
+                  value={newPath}
+                  onChange={(e) => setNewPath(e.target.value)}
+                  placeholder="/mnt/media-library/movies"
+                  className="input flex-1 font-mono text-sm"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      addMediaPath();
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowFileBrowser(true)}
+                  className="btn btn-secondary px-3"
+                  title="Browse"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                  </svg>
+                </button>
+                <button
+                  onClick={addMediaPath}
+                  disabled={!newPath.trim() || addingPath}
+                  className="btn btn-primary"
+                >
+                  {addingPath ? 'Adding...' : 'Add'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* File Browser for Media Paths */}
+      <FileBrowser
+        isOpen={showFileBrowser}
+        onClose={() => setShowFileBrowser(false)}
+        onSelect={(path) => {
+          setNewPath(path);
+          setShowFileBrowser(false);
+        }}
+        initialPath={newPath || '/mnt'}
+        title="Select Media Path"
+      />
 
       {/* Security Settings */}
       <div className="card">
@@ -4672,9 +5518,10 @@ interface MediaServerModalProps {
   server: MediaServer | null;
   onClose: () => void;
   onSaved: () => void;
+  onDelete?: (id: number) => void;
 }
 
-function MediaServerModal({ server, onClose, onSaved }: MediaServerModalProps) {
+function MediaServerModal({ server, onClose, onSaved, onDelete }: MediaServerModalProps) {
   const [form, setForm] = useState({
     name: server?.name || '',
     type: server?.type || 'jellyfin',
@@ -4686,6 +5533,15 @@ function MediaServerModal({ server, onClose, onSaved }: MediaServerModalProps) {
   const [testing, setTesting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<ConnectionTestResult | null>(null);
+  const [connectionVerified, setConnectionVerified] = useState(!!server); // Existing servers are assumed verified
+
+  // Reset verification when connection details change
+  useEffect(() => {
+    if (!server) {
+      setConnectionVerified(false);
+      setTestResult(null);
+    }
+  }, [form.url, form.apiKey, form.type]);
 
   const handleTest = async () => {
     if (!form.url || !form.apiKey) {
@@ -4704,8 +5560,10 @@ function MediaServerModal({ server, onClose, onSaved }: MediaServerModalProps) {
         apiKey: form.apiKey,
       });
       setTestResult(result.data);
+      setConnectionVerified(result.data.connected);
     } catch (err: any) {
       setTestResult({ connected: false, message: err?.message || 'Test failed' });
+      setConnectionVerified(false);
     } finally {
       setTesting(false);
     }
@@ -4713,33 +5571,37 @@ function MediaServerModal({ server, onClose, onSaved }: MediaServerModalProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (!connectionVerified && !server) {
+      setError('Please test the connection before saving');
+      return;
+    }
+    
     setSaving(true);
     setError(null);
 
     try {
-      console.log('Submitting form:', form);
       if (server) {
-        const response = await mediaServers.update(server.id, form);
-        console.log('Update response:', response);
+        await mediaServers.update(server.id, form);
       } else {
-        const response = await mediaServers.create(form);
-        console.log('Create response:', response);
+        await mediaServers.create(form);
       }
       onSaved();
     } catch (err: any) {
-      console.error('Save error:', err);
-      setError(err?.message || (typeof err === 'string' ? err : 'Failed to save'));
+      setError(err?.message || 'Failed to save');
     } finally {
       setSaving(false);
     }
   };
+
+  const canSave = server ? true : connectionVerified;
 
   return (
     <Modal onClose={onClose} title={server ? 'Edit Media Server' : 'Add Media Server'}>
       <form onSubmit={handleSubmit} className="space-y-4">
         {error && (
           <div className="bg-red-900/50 border border-red-700 rounded p-3 text-red-200 text-sm">
-            {typeof error === 'string' ? error : 'An error occurred'}
+            {error}
           </div>
         )}
 
@@ -4747,7 +5609,10 @@ function MediaServerModal({ server, onClose, onSaved }: MediaServerModalProps) {
           <label className="block text-sm font-medium form-label mb-1">Type</label>
           <select
             value={form.type}
-            onChange={(e) => setForm({ ...form, type: e.target.value as any })}
+            onChange={(e) => {
+              setForm({ ...form, type: e.target.value as any });
+              setConnectionVerified(false);
+            }}
             className="input w-full"
           >
             <option value="jellyfin">Jellyfin</option>
@@ -4772,7 +5637,10 @@ function MediaServerModal({ server, onClose, onSaved }: MediaServerModalProps) {
           <input
             type="url"
             value={form.url}
-            onChange={(e) => setForm({ ...form, url: e.target.value })}
+            onChange={(e) => {
+              setForm({ ...form, url: e.target.value });
+              setConnectionVerified(false);
+            }}
             className="input w-full"
             placeholder="http://localhost:8096"
             required
@@ -4784,7 +5652,10 @@ function MediaServerModal({ server, onClose, onSaved }: MediaServerModalProps) {
           <input
             type="password"
             value={form.apiKey}
-            onChange={(e) => setForm({ ...form, apiKey: e.target.value })}
+            onChange={(e) => {
+              setForm({ ...form, apiKey: e.target.value });
+              setConnectionVerified(false);
+            }}
             className="input w-full"
             placeholder="Enter API key"
             required
@@ -4817,20 +5688,47 @@ function MediaServerModal({ server, onClose, onSaved }: MediaServerModalProps) {
           </div>
         )}
 
-        <div className="flex justify-between gap-3 pt-4">
-          <button
-            type="button"
-            onClick={handleTest}
-            disabled={testing || !form.url || !form.apiKey}
-            className="btn btn-secondary"
-          >
-            {testing ? 'Testing...' : 'Test Connection'}
-          </button>
-          <div className="flex gap-3">
+        {!server && !connectionVerified && (
+          <p className="text-xs text-gray-500">
+            Test the connection before saving to verify your settings.
+          </p>
+        )}
+
+        <div className="flex justify-between gap-3 pt-4 border-t border-gray-700">
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={handleTest}
+              disabled={testing || !form.url || !form.apiKey}
+              className="btn btn-secondary"
+            >
+              {testing ? 'Testing...' : 'Test Connection'}
+            </button>
+            {server && onDelete && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (confirm('Are you sure you want to delete this server?')) {
+                    onDelete(server.id);
+                    onClose();
+                  }
+                }}
+                className="btn btn-danger"
+              >
+                Delete
+              </button>
+            )}
+          </div>
+          <div className="flex gap-2">
             <button type="button" onClick={onClose} className="btn btn-secondary">
               Cancel
             </button>
-            <button type="submit" disabled={saving} className="btn btn-primary">
+            <button 
+              type="submit" 
+              disabled={saving || !canSave} 
+              className="btn btn-primary"
+              title={!canSave ? 'Test connection first' : ''}
+            >
               {saving ? 'Saving...' : 'Save'}
             </button>
           </div>
@@ -4844,9 +5742,10 @@ interface ArrAppModalProps {
   app: ArrApp | null;
   onClose: () => void;
   onSaved: () => void;
+  onDelete?: (id: number) => void;
 }
 
-function ArrAppModal({ app, onClose, onSaved }: ArrAppModalProps) {
+function ArrAppModal({ app, onClose, onSaved, onDelete }: ArrAppModalProps) {
   const [form, setForm] = useState({
     name: app?.name || '',
     type: app?.type || 'radarr',
@@ -4857,6 +5756,38 @@ function ArrAppModal({ app, onClose, onSaved }: ArrAppModalProps) {
   const [testing, setTesting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<ConnectionTestResult | null>(null);
+  const [connectionTested, setConnectionTested] = useState(false);
+  
+  // Path mappings state
+  const [showPathMappings, setShowPathMappings] = useState(false);
+  const [pathMappings, setPathMappings] = useState<Array<{ localPath: string; remotePath: string; customPath?: boolean }>>([]);
+  const [pathMappingsLoading, setPathMappingsLoading] = useState(false);
+  const [browsingIndex, setBrowsingIndex] = useState<number | null>(null);
+
+  // Load path mappings when editing an existing app
+  useEffect(() => {
+    if (app?.id) {
+      const loadMappings = async () => {
+        setPathMappingsLoading(true);
+        try {
+          const { get } = await import('../api/client');
+          const response = await get<{ success: boolean; data: Array<any> }>(`/path-mappings/arr/${app.id}`);
+          const normalized = (response.data || []).map((m: any) => ({
+            localPath: m.localPath || '',
+            remotePath: m.arrPath || m.localPath || '',
+            customPath: m.localPath !== (m.arrPath || m.localPath),
+          }));
+          setPathMappings(normalized);
+          if (normalized.length > 0) setShowPathMappings(true);
+        } catch (error) {
+          console.error('Failed to load path mappings:', error);
+        } finally {
+          setPathMappingsLoading(false);
+        }
+      };
+      loadMappings();
+    }
+  }, [app?.id]);
 
   const handleTest = async () => {
     if (!form.url || !form.apiKey) {
@@ -4875,6 +5806,9 @@ function ArrAppModal({ app, onClose, onSaved }: ArrAppModalProps) {
         apiKey: form.apiKey,
       });
       setTestResult(result.data);
+      if (result.data.connected) {
+        setConnectionTested(true);
+      }
     } catch (err: any) {
       setTestResult({ connected: false, message: err?.message || 'Test failed' });
     } finally {
@@ -4884,15 +5818,40 @@ function ArrAppModal({ app, onClose, onSaved }: ArrAppModalProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Require connection test before saving (unless editing existing)
+    if (!app && !connectionTested) {
+      setError('Please test the connection before saving');
+      return;
+    }
+    
     setSaving(true);
     setError(null);
 
     try {
+      let appId = app?.id;
+      
       if (app) {
         await arrApps.update(app.id, form);
       } else {
-        await arrApps.create(form);
+        const response = await arrApps.create(form);
+        appId = response.data.id;
       }
+      
+      // Save path mappings
+      if (appId && pathMappings.length > 0) {
+        const { put } = await import('../api/client');
+        const payload = pathMappings.map(m => ({
+          localPath: m.localPath,
+          arrPath: m.customPath ? m.remotePath : m.localPath,
+        }));
+        await put(`/path-mappings/arr/${appId}`, { mappings: payload });
+      } else if (appId && pathMappings.length === 0 && app) {
+        // Clear mappings if they were all removed
+        const { put } = await import('../api/client');
+        await put(`/path-mappings/arr/${appId}`, { mappings: [] });
+      }
+      
       onSaved();
     } catch (err: any) {
       setError(err?.message || (typeof err === 'string' ? err : 'Failed to save'));
@@ -4900,6 +5859,36 @@ function ArrAppModal({ app, onClose, onSaved }: ArrAppModalProps) {
       setSaving(false);
     }
   };
+
+  // Path mapping helpers
+  const addPathMapping = () => {
+    setPathMappings([...pathMappings, { localPath: '', remotePath: '', customPath: false }]);
+    setShowPathMappings(true);
+  };
+
+  const removePathMapping = (index: number) => {
+    setPathMappings(pathMappings.filter((_, i) => i !== index));
+  };
+
+  const updatePathMapping = (index: number, field: 'localPath' | 'remotePath' | 'customPath', value: string | boolean) => {
+    const updated = [...pathMappings];
+    if (field === 'customPath') {
+      updated[index].customPath = value as boolean;
+      if (!value) {
+        updated[index].remotePath = updated[index].localPath;
+      }
+    } else if (field === 'localPath') {
+      updated[index].localPath = value as string;
+      if (!updated[index].customPath) {
+        updated[index].remotePath = value as string;
+      }
+    } else {
+      updated[index].remotePath = value as string;
+    }
+    setPathMappings(updated);
+  };
+
+  const getServiceLabel = () => form.type === 'radarr' ? 'Radarr' : 'Sonarr';
 
   return (
     <Modal onClose={onClose} title={app ? 'Edit Arr Service' : 'Add Arr Service'}>
@@ -4971,6 +5960,118 @@ function ArrAppModal({ app, onClose, onSaved }: ArrAppModalProps) {
           </div>
         )}
 
+        {/* Path Mappings Section */}
+        <div className="border-t border-gray-700 pt-4">
+          <button
+            type="button"
+            onClick={() => setShowPathMappings(!showPathMappings)}
+            className="flex items-center justify-between w-full text-left"
+          >
+            <div>
+              <span className="font-medium text-sm">Path Mappings</span>
+              <span className="text-xs text-gray-500 ml-2">
+                {pathMappings.length > 0 ? `(${pathMappings.length} configured)` : '(optional)'}
+              </span>
+            </div>
+            <svg 
+              className={`w-4 h-4 text-gray-400 transition-transform ${showPathMappings ? 'rotate-180' : ''}`}
+              fill="none" stroke="currentColor" viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+          
+          {showPathMappings && (
+            <div className="mt-3 space-y-3">
+              <p className="text-xs text-gray-500">
+                Only needed if Sweeparr and {getServiceLabel()} see files at different paths.
+              </p>
+              
+              {pathMappingsLoading ? (
+                <div className="flex items-center gap-2 text-gray-400 text-sm">
+                  <LoadingSpinner size="sm" /> Loading...
+                </div>
+              ) : (
+                <>
+                  {pathMappings.map((mapping, index) => (
+                    <div key={index} className="bg-tertiary rounded-lg p-3 space-y-2">
+                      <div>
+                        <label className="text-xs text-gray-400 mb-1 block">Sweeparr Path</label>
+                        <div className="flex gap-1">
+                          <input
+                            type="text"
+                            value={mapping.localPath}
+                            onChange={(e) => updatePathMapping(index, 'localPath', e.target.value)}
+                            className="input flex-1 text-sm"
+                            placeholder="/data/media/movies"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setBrowsingIndex(index)}
+                            className="btn btn-secondary text-sm px-2"
+                            title="Browse"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                            </svg>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => removePathMapping(index)}
+                            className="btn btn-danger text-sm px-2"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center justify-between pt-2 border-t border-gray-600">
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => updatePathMapping(index, 'customPath', !mapping.customPath)}
+                            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                              mapping.customPath ? 'bg-orange-600' : 'bg-gray-600'
+                            }`}
+                          >
+                            <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
+                              mapping.customPath ? 'translate-x-[18px]' : 'translate-x-1'
+                            }`} />
+                          </button>
+                          <span className="text-xs text-gray-400">{getServiceLabel()} uses different path</span>
+                        </div>
+                      </div>
+                      
+                      {mapping.customPath && (
+                        <div>
+                          <label className="text-xs text-gray-400 mb-1 block">{getServiceLabel()} Path</label>
+                          <input
+                            type="text"
+                            value={mapping.remotePath}
+                            onChange={(e) => updatePathMapping(index, 'remotePath', e.target.value)}
+                            className="input w-full text-sm"
+                            placeholder="/movies"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  
+                  <button
+                    type="button"
+                    onClick={addPathMapping}
+                    className="btn btn-secondary text-sm w-full"
+                  >
+                    + Add Path Mapping
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+
         <div className="flex justify-between gap-3 pt-4">
           <button
             type="button"
@@ -4990,6 +6091,19 @@ function ArrAppModal({ app, onClose, onSaved }: ArrAppModalProps) {
           </div>
         </div>
       </form>
+      
+      {/* File Browser Modal */}
+      <FileBrowser
+        isOpen={browsingIndex !== null}
+        onClose={() => setBrowsingIndex(null)}
+        onSelect={(path) => {
+          if (browsingIndex !== null) {
+            updatePathMapping(browsingIndex, 'localPath', path);
+          }
+        }}
+        initialPath={browsingIndex !== null ? pathMappings[browsingIndex]?.localPath || '/' : '/'}
+        title="Select Sweeparr Path"
+      />
     </Modal>
   );
 }

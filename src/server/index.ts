@@ -33,6 +33,7 @@ import storageRoutes from './api/storage.js';
 import presetsRoutes from './api/presets.js';
 import leavingSoonRoutes from './api/leaving-soon.js';
 import pathMappingsRoutes from './api/path-mappings.js';
+import mediaPathsRoutes from './api/media-paths.js';
 import { leavingSoonService } from './services/leavingSoonService.js';
 
 const app = express();
@@ -74,6 +75,7 @@ app.use('/api/v1/storage-sources', storageRoutes);
 app.use('/api/v1/presets', presetsRoutes);
 app.use('/api/v1/leaving-soon', leavingSoonRoutes);
 app.use('/api/v1/path-mappings', pathMappingsRoutes);
+app.use('/api/v1/media-paths', mediaPathsRoutes);
 
 // Serve static files in production
 if (process.env.NODE_ENV === 'production') {

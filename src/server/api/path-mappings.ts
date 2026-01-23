@@ -1,4 +1,6 @@
 import { Router } from 'express';
+import fs from 'fs/promises';
+import path from 'path';
 import { pathMappingService } from '../services/pathMappingService.js';
 import { createError } from '../middleware/errorHandler.js';
 import { logger } from '../utils/logger.js';
@@ -280,6 +282,71 @@ router.post('/test-path', async (req, res, next) => {
 
     const result = await pathMappingService.testLocalPath(path);
     res.json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ============================================
+// File Browser
+// ============================================
+
+/**
+ * POST /api/v1/path-mappings/browse
+ * Browse directories on the local filesystem
+ */
+router.post('/browse', async (req, res, next) => {
+  try {
+    const { currentPath } = req.body;
+    
+    // Default to root paths if no path provided
+    const browsePath = currentPath || '/';
+    
+    // Resolve to absolute path
+    const absolutePath = path.resolve(browsePath);
+    
+    try {
+      // Check if path exists
+      const stats = await fs.stat(absolutePath);
+      
+      if (!stats.isDirectory()) {
+        throw createError('Path is not a directory', 400);
+      }
+      
+      // Read directory contents
+      const entries = await fs.readdir(absolutePath, { withFileTypes: true });
+      
+      // Filter to only directories and sort alphabetically
+      const directories = entries
+        .filter(entry => entry.isDirectory())
+        .filter(entry => !entry.name.startsWith('.')) // Hide hidden directories
+        .map(entry => ({
+          name: entry.name,
+          path: path.join(absolutePath, entry.name),
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      
+      // Get parent directory
+      const parentPath = path.dirname(absolutePath);
+      const hasParent = parentPath !== absolutePath; // Root has no parent
+      
+      res.json({
+        success: true,
+        data: {
+          currentPath: absolutePath,
+          parentPath: hasParent ? parentPath : null,
+          directories,
+        },
+      });
+    } catch (err: any) {
+      if (err.code === 'ENOENT') {
+        throw createError('Directory does not exist', 404);
+      }
+      if (err.code === 'EACCES') {
+        throw createError('Permission denied', 403);
+      }
+      throw err;
+    }
   } catch (error) {
     next(error);
   }
