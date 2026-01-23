@@ -77,9 +77,9 @@ app.use('/api/v1/leaving-soon', leavingSoonRoutes);
 app.use('/api/v1/path-mappings', pathMappingsRoutes);
 app.use('/api/v1/media-paths', mediaPathsRoutes);
 
-// Serve static files in production
-if (process.env.NODE_ENV === 'production') {
-  // In production, the compiled server is at dist/server/server/index.js
+// Serve static files (always serve if dist/client exists)
+{
+  // The compiled server is at dist/server/server/index.js
   // and the client is at dist/client/
   const clientPath = path.join(process.cwd(), 'dist', 'client');
   
