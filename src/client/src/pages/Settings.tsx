@@ -5872,12 +5872,25 @@ function ConnectionModal({ service, serviceType, servers = [], onClose, onSaved,
     
     try {
       let result;
-      if (category === 'media-server') {
-        result = await mediaServers.testConnection({ type: form.type, url: form.url, apiKey: form.apiKey });
-      } else if (category === 'arr') {
-        result = await arrApps.testConnection({ type: form.type, url: form.url, apiKey: form.apiKey });
+      if (isEditing && service?.id) {
+        // Use the ID-specific test endpoint for existing services
+        // This allows the backend to update service metadata (e.g. watchDataReliableAfter)
+        if (category === 'media-server') {
+          result = await mediaServers.test(service.id);
+        } else if (category === 'arr') {
+          result = await arrApps.test(service.id);
+        } else {
+          result = await statisticsServices.test(service.id);
+        }
       } else {
-        result = await statisticsServices.testConnection({ type: form.type, url: form.url, apiKey: form.apiKey });
+        // Use the generic test endpoint for new services (no ID yet)
+        if (category === 'media-server') {
+          result = await mediaServers.testConnection({ type: form.type, url: form.url, apiKey: form.apiKey });
+        } else if (category === 'arr') {
+          result = await arrApps.testConnection({ type: form.type, url: form.url, apiKey: form.apiKey });
+        } else {
+          result = await statisticsServices.testConnection({ type: form.type, url: form.url, apiKey: form.apiKey });
+        }
       }
       setTestResult(result.data);
       if (result.data.connected) {
