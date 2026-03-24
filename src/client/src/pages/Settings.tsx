@@ -6234,9 +6234,19 @@ function ConnectionModal({ service, serviceType, servers = [], onClose, onSaved,
               {testing ? 'Testing...' : 'Test Connection'}
             </button>
           ) : (
-            <button type="submit" disabled={saving} className="btn btn-primary">
-              {saving ? 'Saving...' : 'Save'}
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={handleTest}
+                disabled={testing}
+                className="btn btn-secondary"
+              >
+                {testing ? 'Testing...' : 'Test'}
+              </button>
+              <button type="submit" disabled={saving} className="btn btn-primary">
+                {saving ? 'Saving...' : 'Save'}
+              </button>
+            </>
           )}
         </div>
       </form>
