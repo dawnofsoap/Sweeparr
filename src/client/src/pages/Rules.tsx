@@ -978,7 +978,10 @@ function PreviewItemRow({ item }: { item: RulePreviewItem }) {
             {item.lastWatchedDaysAgo !== null && item.lastWatchedDaysAgo !== undefined && (
               <> • Watched {item.lastWatchedDaysAgo}d ago</>
             )}
-            {item.lastWatchedDaysAgo === null && (
+            {item.lastWatchedDaysAgo === null && item.watchDataUnreliable && (
+              <> • <span className="text-orange-400" title="Added before stats service was connected — watch data may be incomplete">Never watched ⚠</span></>
+            )}
+            {item.lastWatchedDaysAgo === null && !item.watchDataUnreliable && (
               <> • <span className="text-yellow-500">Never watched</span></>
             )}
           </div>

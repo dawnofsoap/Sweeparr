@@ -119,6 +119,7 @@ export interface RulePreviewItem {
   posterUrl: string | null;
   lastWatched?: string | null;
   lastWatchedDaysAgo?: number | null;
+  watchDataUnreliable?: boolean;
   matchedConditions: string[];
 }
 

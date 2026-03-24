@@ -113,6 +113,13 @@ model StatisticsService {
   url          String        @unique // Prevent duplicate services
   apiKey       String
   isEnabled    Boolean       @default(true)
+  
+  // Auto-set on first successful connection test.
+  // Items added to the library before this date are excluded from
+  // watch-based rule conditions (e.g., "never watched") because
+  // the stats service wasn't tracking yet.
+  watchDataReliableAfter DateTime?
+  
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
   mediaServers MediaServer[] // Optional link to associated media servers

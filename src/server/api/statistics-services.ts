@@ -127,6 +127,9 @@ router.post('/', async (req: Request, res: Response) => {
     }
 
     // Create the service
+    // watchDataReliableAfter is set to now — items added before this
+    // date will be excluded from watch-based rule conditions since
+    // the stats service wasn't tracking them yet.
     const service = await prisma.statisticsService.create({
       data: {
         name,
@@ -134,6 +137,7 @@ router.post('/', async (req: Request, res: Response) => {
         url: cleanUrl,
         apiKey,
         isEnabled,
+        watchDataReliableAfter: new Date(),
       },
     });
 
@@ -312,6 +316,17 @@ router.post('/:id/test', async (req: Request, res: Response) => {
     });
 
     const result = await client.testConnection();
+
+    // If this is the first successful test and watchDataReliableAfter
+    // isn't set yet, record now as the reliability start date.
+    // This handles services created before this feature existed.
+    if (result.success && !service.watchDataReliableAfter) {
+      await prisma.statisticsService.update({
+        where: { id },
+        data: { watchDataReliableAfter: new Date() },
+      });
+      logger.info(`Set watchDataReliableAfter for ${service.name} to now`, 'Statistics');
+    }
 
     res.json({
       success: true,

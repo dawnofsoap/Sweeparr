@@ -307,6 +307,7 @@ interface PreviewItem {
   posterUrl: string | null;
   lastWatched?: string | null;
   lastWatchedDaysAgo?: number | null;
+  watchDataUnreliable?: boolean;
   matchedConditions: string[];
 }
 
@@ -338,7 +339,7 @@ function extractPosterUrl(images: { coverType: string; url: string; remoteUrl?: 
 
 function evaluateCondition(
   condition: RuleCondition,
-  item: { addedDaysAgo: number; size: number; rating?: number; year: number; hasFile: boolean; monitored: boolean; genres: string[]; tags: number[]; lastWatchedDaysAgo?: number | null },
+  item: { addedDaysAgo: number; size: number; rating?: number; year: number; hasFile: boolean; monitored: boolean; genres: string[]; tags: number[]; lastWatchedDaysAgo?: number | null; watchDataUnreliable?: boolean },
   tagMap: Map<number, string>
 ): { matches: boolean; description: string } {
   const { field, operator, value } = condition;
@@ -351,7 +352,9 @@ function evaluateCondition(
       if (item.lastWatchedDaysAgo === null || item.lastWatchedDaysAgo === undefined) {
         // Never watched - treat as infinite days ago for "greaterThan"
         matches = operator === 'greaterThan';
-        description = `Last watched: Never`;
+        description = item.watchDataUnreliable
+          ? `Last watched: Never (unverified — added before stats tracking)`
+          : `Last watched: Never`;
       } else {
         if (operator === 'greaterThan') {
           matches = item.lastWatchedDaysAgo > Number(value);
@@ -480,6 +483,7 @@ router.post('/preview', async (req, res, next) => {
     const needsWatchHistory = conditions.some((c: RuleCondition) => c.field === 'lastWatched');
     let jellystatClient: JellystatClient | null = null;
     let watchHistory: Map<string, Date> = new Map();
+    let watchDataReliableAfter: Date | null = null;
     
     if (needsWatchHistory) {
       // Find a connected statistics service
@@ -492,6 +496,9 @@ router.post('/preview', async (req, res, next) => {
           url: statsService.url,
           apiKey: statsService.apiKey,
         });
+        // Items added before this date have unreliable watch data —
+        // the stats service wasn't tracking yet when they were added.
+        watchDataReliableAfter = statsService.watchDataReliableAfter;
       }
     }
     
@@ -534,6 +541,13 @@ router.post('/preview', async (req, res, next) => {
         const lastWatchedDate = watchHistory.get(String(movie.tmdbId));
         const lastWatchedDaysAgo = lastWatchedDate ? daysSince(lastWatchedDate.toISOString()) : null;
         
+        // Flag items whose watch data can't be trusted — they were in
+        // the library before the stats service started tracking.
+        const watchDataUnreliable = needsWatchHistory
+          && lastWatchedDaysAgo === null
+          && watchDataReliableAfter != null
+          && new Date(movie.added) < watchDataReliableAfter;
+        
         const itemData = {
           addedDaysAgo,
           size: movie.sizeOnDisk,
@@ -544,6 +558,7 @@ router.post('/preview', async (req, res, next) => {
           genres: movie.genres || [],
           tags: movie.tags || [],
           lastWatchedDaysAgo,
+          watchDataUnreliable,
         };
         
         const matchedConditions: string[] = [];
@@ -586,6 +601,7 @@ router.post('/preview', async (req, res, next) => {
               posterUrl,
               lastWatched: lastWatchedDate?.toISOString() || null,
               lastWatchedDaysAgo,
+              watchDataUnreliable,
               matchedConditions,
             });
           }
@@ -626,6 +642,12 @@ router.post('/preview', async (req, res, next) => {
         const lastWatchedDate = watchHistory.get(String(show.tvdbId));
         const lastWatchedDaysAgo = lastWatchedDate ? daysSince(lastWatchedDate.toISOString()) : null;
         
+        // Same reliability flag as movies
+        const watchDataUnreliable = needsWatchHistory
+          && lastWatchedDaysAgo === null
+          && watchDataReliableAfter != null
+          && new Date(show.added) < watchDataReliableAfter;
+        
         const itemData = {
           addedDaysAgo,
           size: show.statistics?.sizeOnDisk || 0,
@@ -636,6 +658,7 @@ router.post('/preview', async (req, res, next) => {
           genres: show.genres || [],
           tags: show.tags || [],
           lastWatchedDaysAgo,
+          watchDataUnreliable,
         };
         
         const matchedConditions: string[] = [];
@@ -678,6 +701,7 @@ router.post('/preview', async (req, res, next) => {
               posterUrl,
               lastWatched: lastWatchedDate?.toISOString() || null,
               lastWatchedDaysAgo,
+              watchDataUnreliable,
               matchedConditions,
             });
           }
