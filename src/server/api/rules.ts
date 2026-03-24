@@ -499,6 +499,7 @@ router.post('/preview', async (req, res, next) => {
         // Items added before this date have unreliable watch data —
         // the stats service wasn't tracking yet when they were added.
         watchDataReliableAfter = statsService.watchDataReliableAfter;
+        logger.info(`Watch data reliable after: ${watchDataReliableAfter?.toISOString() || 'not set'}`, 'Rules');
       }
     }
     
@@ -547,6 +548,11 @@ router.post('/preview', async (req, res, next) => {
           && lastWatchedDaysAgo === null
           && watchDataReliableAfter != null
           && new Date(movie.added) < watchDataReliableAfter;
+        
+        // Debug: log first few items to verify flag logic
+        if (previewItems.length < 3 && lastWatchedDaysAgo === null) {
+          logger.debug(`[WatchReliability] ${movie.title}: added=${movie.added}, reliable_after=${watchDataReliableAfter?.toISOString()}, unreliable=${watchDataUnreliable}`, 'Rules');
+        }
         
         const itemData = {
           addedDaysAgo,
