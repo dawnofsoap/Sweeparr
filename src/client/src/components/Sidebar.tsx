@@ -12,7 +12,6 @@ const settingsSubNav = [
   { name: 'General', path: '/settings/general', icon: GeneralIcon, section: 'general' },
   { name: 'Connections', path: '/settings/connections', icon: ConnectionsIcon, section: 'connections' },
   { name: 'Storage', path: '/settings/storage', icon: StorageIcon, section: 'storage' },
-  { name: 'Cleanup', path: '/settings/cleanup', icon: CleanupIcon, section: 'cleanup' },
   { name: 'Notifications', path: '/settings/notifications', icon: NotificationsIcon, section: 'notifications' },
   { name: 'UI', path: '/settings/ui', icon: UIIcon, section: 'ui' },
 ];
